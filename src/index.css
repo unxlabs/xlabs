@@ -349,3 +349,10 @@ canvas {
 [data-rk] { max-width: 100% !important; }
 [data-rk] * { max-width: 100% !important; }
 [data-rk] button { max-width: 100% !important; }
+
+
+
+
+:root {
+  --cyan: rgba(8, 230, 254, 1);
+}
