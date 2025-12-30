@@ -12,7 +12,7 @@ export default function Overview() {
         transition={{ duration: 0.35 }}
       >
         <h1 style={{ margin: 0, fontSize: 34 }}>
-          BTCB Deposit → <span className="neonCyan">Proof of Participation</span>
+          BTCB Deposit -- → <span className="neonCyan">Proof of Participation</span>
         </h1>
         <p className="pageSub" style={{ marginTop: 10 }}>
           Earn UXL rewards and unlock utility: levels, boosts, priority drops, and launch access.
