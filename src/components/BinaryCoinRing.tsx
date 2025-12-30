@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 
 type Props = {
   /** النص اللي بدك يطلع بالنص (بدل ₿ ممكن تحط X مثلاً) */
