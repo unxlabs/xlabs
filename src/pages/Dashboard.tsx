@@ -6,7 +6,7 @@ export default function Dashboard() {
   return (
     <div style={{ maxWidth: 1100, margin: "0 auto" }}>
       <h2 className="pageTitle">Dashboard</h2>
-      <p className="pageSub">Your deposits, rewards and utility status.</p>
+      <p className="pageSub">Yourrrr deposits, rewards and utility status.</p>
 
       {!isConnected ? (
         <div className="card cardGlow">
