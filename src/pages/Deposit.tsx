@@ -19,9 +19,9 @@ export default function Deposit() {
 
   return (
     <div style={{ maxWidth: 560, margin: "0 auto" }}>
-      <h2 className="pageTitle">Deposit BTCB</h2>
+      <h2 className="pageTitle">Deposit BTCBbbb</h2>
       <p className="pageSub">
-        This is the MVP deposit screen. Next we’ll connect it to the BTCB token and your deposit contract.
+        Thissssss is the MVP deposit screen. Next we’ll connect it to the BTCB token and your deposit contract.
       </p>
 
       <div className="card cardGlow">
