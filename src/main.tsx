@@ -13,7 +13,6 @@ import App from "./app/routes";
 import "./styles/globals.css";
 import "./styles/ux.css";
 import { wagmiConfig } from "./shared/config/wagmi";
-import "@rainbow-me/rainbowkit/styles.css";
 
 const queryClient = new QueryClient();
 
@@ -21,7 +20,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
-        <RainbowKitProvider locale="en-US">
+        <RainbowKitProvider locale="en-US" modalSize="compact">
           <BrowserRouter>
             <App />
             <Toaster position="top-right" />

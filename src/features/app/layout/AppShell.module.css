@@ -1,229 +1,325 @@
 /* =========================
-   App Shell (Light theme)
+   App Shell
    ========================= */
 
-/* App shell */
-.uxAppShell{
+.uxAppShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px 1fr;
+  grid-template-columns: 260px minmax(0, 1fr);
   gap: 18px;
   padding: 18px;
   max-width: 1400px;
   margin: 0 auto;
+  overflow-x: hidden;
 }
 
-.uxSide{
+.uxSide {
   border-radius: 22px;
-  border: 1px solid rgba(252,253,253,0.10);
-  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(252, 253, 253, 0.1);
+  background: rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   padding: 14px;
   height: calc(100vh - 36px);
   position: sticky;
   top: 18px;
 }
 
-.uxSideBrand{
+.uxSideBrand {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 10px 10px 14px;
   text-decoration: none;
-  color: rgba(252,253,253,0.92);
+  color: rgba(252, 253, 253, 0.92);
 }
-.uxSideBrand strong{ font-weight: 1000; letter-spacing: .06em; }
-.uxSideBrand span{ opacity: .65; letter-spacing: .14em; font-size: 12px; }
 
-.uxSideNav{ display: grid; gap: 8px; padding: 6px; }
+.uxSideBrand strong {
+  font-weight: 1000;
+  letter-spacing: 0.06em;
+}
 
-.uxSideItem{
+.uxSideBrand span {
+  opacity: 0.65;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+}
+
+.uxSideNav {
+  display: grid;
+  gap: 8px;
+  padding: 6px;
+}
+
+.uxSideItem {
   padding: 10px 12px;
   border-radius: 14px;
-  border: 1px solid rgba(252,253,253,0.08);
-  background: rgba(0,8,21,0.18);
-  color: rgba(252,253,253,0.86);
+  border: 1px solid rgba(252, 253, 253, 0.08);
+  background: rgba(0, 8, 21, 0.18);
+  color: rgba(252, 253, 253, 0.86);
   text-decoration: none;
   font-weight: 900;
 }
-.uxSideItem:hover{ border-color: rgba(8,230,254,0.16); background: rgba(0,8,21,0.28); }
-.uxSideItem.isActive{
-  border-color: rgba(8,230,254,0.28);
-  background: rgba(2,15,40,0.35);
-  color: rgba(252,253,253,0.95);
+
+.uxSideItem:hover {
+  border-color: rgba(8, 230, 254, 0.16);
+  background: rgba(0, 8, 21, 0.28);
 }
 
-.uxSideDivider{ height: 1px; background: rgba(252,253,253,0.10); margin: 10px 6px; }
+.uxSideItem.isActive {
+  border-color: rgba(8, 230, 254, 0.28);
+  background: rgba(2, 15, 40, 0.35);
+  color: rgba(252, 253, 253, 0.95);
+}
 
-.uxAppMain{ min-width: 0; }
+.uxSideDivider {
+  height: 1px;
+  background: rgba(252, 253, 253, 0.1);
+  margin: 10px 6px;
+}
 
-.uxAppContent{ padding-top: 14px; }
+.uxAppMain {
+  min-width: 0;
+  width: 100%;
+}
 
-/* ======================================================
-   Light theme scoped to app
-   ====================================================== */
+.uxAppContent {
+  min-width: 0;
+  width: 100%;
+  padding-top: 14px;
+}
 
-.uxAppThemeLight{
+/* =========================
+   Light Theme
+   ========================= */
+
+.uxAppThemeLight {
   --uxText: #0b0d10;
-  --uxMuted: rgba(11,13,16,0.62);
-  --uxBorder: rgba(0,0,0,0.08);
-  --uxSurface: rgba(255,255,255,0.86);
-  --uxSurface2: rgba(255,255,255,0.72);
-  --uxShadow: 0 18px 55px rgba(0,0,0,0.10);
+  --uxMuted: rgba(11, 13, 16, 0.62);
+  --uxBorder: rgba(0, 0, 0, 0.08);
+  --uxSurface: rgba(255, 255, 255, 0.86);
+  --uxSurface2: rgba(255, 255, 255, 0.72);
+  --uxShadow: 0 18px 55px rgba(0, 0, 0, 0.1);
+
   color: var(--uxText);
 }
 
-/* Make app area white, independent from the dark body background */
-.uxAppThemeLight .uxAppMain{
-  background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(245,247,250,0.92));
+.uxAppThemeLight .uxAppMain {
+  min-width: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.92),
+    rgba(245, 247, 250, 0.92)
+  );
   border-radius: 26px;
-  border: 1px solid rgba(255,255,255,0.55);
-  box-shadow: 0 28px 70px rgba(0,0,0,0.18);
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.18);
   padding: 14px;
 }
 
-.uxAppThemeLight .uxAppContent{ padding-top: 12px; }
+.uxAppThemeLight .uxAppContent {
+  padding-top: 12px;
+}
 
-/* Sidebar light */
-.uxAppThemeLight .uxSide{
+.uxAppThemeLight .uxSide {
   backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   background: var(--uxSurface);
   border: 1px solid var(--uxBorder);
 }
-.uxAppThemeLight .uxSideBrand{ color: var(--uxText); }
-.uxAppThemeLight .uxSideBrand span{ opacity: .55; }
 
-.uxAppThemeLight .uxSideItem{
-  background: rgba(0,0,0,0.03);
-  border: 1px solid rgba(0,0,0,0.06);
-  color: rgba(11,13,16,0.82);
-}
-.uxAppThemeLight .uxSideItem:hover{ background: rgba(0,0,0,0.05); }
-
-.uxAppThemeLight .uxSideItem.isActive{
-  background: rgba(8,230,254,0.12);
-  border-color: rgba(8,230,254,0.22);
-  color: rgba(11,13,16,0.92);
+.uxAppThemeLight .uxSideBrand {
+  color: var(--uxText);
 }
 
-.uxAppThemeLight .uxSideDivider{ background: rgba(0,0,0,0.08); }
+.uxAppThemeLight .uxSideBrand span {
+  opacity: 0.55;
+}
 
-/* ======================================================
-   Notice banner
-   ====================================================== */
+.uxAppThemeLight .uxSideItem {
+  background: rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  color: rgba(11, 13, 16, 0.82);
+}
 
-.uxNotice{
+.uxAppThemeLight .uxSideItem:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.uxAppThemeLight .uxSideItem.isActive {
+  background: rgba(8, 230, 254, 0.12);
+  border-color: rgba(8, 230, 254, 0.22);
+  color: rgba(11, 13, 16, 0.92);
+}
+
+.uxAppThemeLight .uxSideDivider {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+/* =========================
+   Notice
+   ========================= */
+
+.uxNotice {
   margin-top: 10px;
   border-radius: 999px;
-  border: 1px solid rgba(0,0,0,0.06);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   background: #e9f8c7;
   padding: 10px 12px;
 }
-.uxNoticeInner{
+
+.uxNoticeInner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
-.uxNoticeText{
+
+.uxNoticeText {
+  min-width: 0;
   font-weight: 900;
-  color: rgba(11,13,16,0.85);
+  color: rgba(11, 13, 16, 0.85);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.uxNoticeClose{
+
+.uxNoticeClose {
   width: 38px;
   height: 38px;
+  flex: 0 0 auto;
   border-radius: 999px;
-  border: 1px solid rgba(0,0,0,0.08);
-  background: rgba(255,255,255,0.55);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  background: rgba(255, 255, 255, 0.55);
   cursor: pointer;
 }
 
-/* ======================================================
-   Header like BitFi
-   ====================================================== */
+/* =========================
+   Header
+   ========================= */
 
-.uxHeaderBitfi{
+.uxHeaderBitfi {
+  width: 100%;
+  min-width: 0;
+
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
 
-  background: rgba(255,255,255,0.96);
-  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 26px;
 
-  padding: 14px 14px;
-  box-shadow: 0 10px 30px rgba(0,0,0,0.06);
+  padding: 14px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
 }
 
-.uxHeaderLogo{
+.uxHeaderLogo {
+  min-width: 0;
+
   display: inline-flex;
   align-items: baseline;
   gap: 8px;
+
   text-decoration: none;
-  color: rgba(11,13,16,0.92);
+  color: rgba(11, 13, 16, 0.92);
+
   font-weight: 1000;
-  letter-spacing: .02em;
+  letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.uxHeaderLogo span{
-  opacity: .6;
+
+.uxHeaderLogo span {
+  opacity: 0.6;
   font-weight: 900;
-  letter-spacing: .10em;
+  letter-spacing: 0.1em;
   font-size: 12px;
 }
 
-.uxHeaderRight{
+.uxHeaderRight {
+  min-width: 0;
+
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 10px;
 }
 
-/* Wallet pill (black) */
-.uxHeaderWallet{
+/* =========================
+   Wallet Button
+   ========================= */
+
+.uxHeaderWallet {
+  min-width: 0;
+  max-width: 100%;
+
   height: 44px;
   padding: 0 14px;
+
   border-radius: 999px;
   border: 0;
+
   background: #0b0d10;
   color: #fff;
+
   cursor: pointer;
 
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 10px;
 
   font-weight: 1000;
+  white-space: nowrap;
 }
-.uxHeaderWallet:hover{ opacity: 0.95; }
 
-.uxHeaderWalletIcon{
+.uxHeaderWallet:hover {
+  opacity: 0.95;
+}
+
+.uxHeaderWalletIcon {
+  flex: 0 0 auto;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
 }
 
-.uxHeaderWalletText{
+.uxHeaderWalletText {
+  min-width: 0;
+  max-width: 180px;
+
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
   font-size: 16px;
-  letter-spacing: .01em;
+  letter-spacing: 0.01em;
 }
 
-.uxHeaderWalletChevron{
+.uxHeaderWalletChevron {
+  flex: 0 0 auto;
+
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: .9;
+
+  opacity: 0.9;
 }
 
-/* Hamburger */
-.uxHeaderHamburger{
+/* =========================
+   Hamburger
+   ========================= */
+
+.uxHeaderHamburger {
   width: 48px;
   height: 44px;
+  flex: 0 0 48px;
+
   border-radius: 14px;
   border: 0;
+
   background: transparent;
   cursor: pointer;
 
@@ -234,120 +330,389 @@
   gap: 6px;
 }
 
-.uxHeaderHamburger span{
+.uxHeaderHamburger span {
   display: block;
   height: 3px;
+
   border-radius: 999px;
-  background: rgba(11,13,16,0.92);
-}
-.uxHeaderHamburger span:nth-child(1){ width: 26px; }
-.uxHeaderHamburger span:nth-child(2){ width: 30px; }
-.uxHeaderHamburger span:nth-child(3){ width: 22px; }
-
-@media (max-width: 720px){
-  .uxHeaderBitfi{
-    border-radius: 22px;
-    padding: 12px 12px;
-  }
+  background: rgba(11, 13, 16, 0.92);
 }
 
-/* ======================================================
-   App Mobile Nav (Drawer)
-   ====================================================== */
+.uxHeaderHamburger span:nth-child(1) {
+  width: 26px;
+}
 
-/* lock body scroll (global selectors) */
+.uxHeaderHamburger span:nth-child(2) {
+  width: 30px;
+}
+
+.uxHeaderHamburger span:nth-child(3) {
+  width: 22px;
+}
+
+/* =========================
+   Mobile Drawer
+   ========================= */
+
 :global(html.uxMenuOpen),
-:global(body.uxMenuOpen){
+:global(body.uxMenuOpen) {
   overflow: hidden;
 }
 
-.uxAppNavBackdrop{
+.uxAppNavBackdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0,0,0,0.55);
+
+  background: rgba(0, 0, 0, 0.55);
+
   z-index: 300;
 }
 
-.uxAppNavPanel{
+.uxAppNavPanel {
   position: fixed;
+
   left: 12px;
   right: 12px;
   top: 12px;
+
+  max-height: calc(100dvh - 24px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+
   z-index: 310;
+
   border-radius: 22px;
-  border: 1px solid rgba(0,0,0,0.10);
-  background: rgba(255,255,255,0.98);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+
+  background: rgba(255, 255, 255, 0.98);
+
   padding: 14px;
-  box-shadow: 0 22px 70px rgba(0,0,0,0.25);
+
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.25);
 }
 
-.uxAppNavTop{
+.uxAppNavTop {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(0,0,0,0.08);
+
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
 }
 
-.uxAppNavTitle{
+.uxAppNavTitle {
   font-weight: 1000;
-  letter-spacing: .03em;
-  color: rgba(11,13,16,0.90);
+  letter-spacing: 0.03em;
+  color: rgba(11, 13, 16, 0.9);
 }
 
-.uxAppNavClose{
+.uxAppNavClose {
   width: 42px;
   height: 42px;
+  flex: 0 0 auto;
+
   border-radius: 14px;
-  border: 1px solid rgba(0,0,0,0.10);
-  background: rgba(0,0,0,0.03);
-  color: rgba(11,13,16,0.90);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(11, 13, 16, 0.9);
+
   cursor: pointer;
 }
 
-.uxAppNavSection{ padding-top: 12px; }
+.uxAppNavSection {
+  padding-top: 12px;
+}
 
-.uxAppNavSectionTitle{
-  font-size: 12px;
-  opacity: .65;
-  font-weight: 1000;
-  letter-spacing: .08em;
+.uxAppNavSectionTitle {
   margin-bottom: 8px;
-  color: rgba(11,13,16,0.80);
+
+  font-size: 12px;
+  opacity: 0.65;
+
+  font-weight: 1000;
+  letter-spacing: 0.08em;
+
+  color: rgba(11, 13, 16, 0.8);
 }
 
-.uxAppNavList{ display: grid; gap: 10px; }
+.uxAppNavList {
+  display: grid;
+  gap: 10px;
+}
 
-.uxAppNavItem{
+.uxAppNavItem {
   padding: 12px;
+
   border-radius: 16px;
-  border: 1px solid rgba(0,0,0,0.08);
-  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+
+  background: rgba(0, 0, 0, 0.03);
+
   text-decoration: none;
-  color: rgba(11,13,16,0.90);
+
+  color: rgba(11, 13, 16, 0.9);
+
   font-weight: 1000;
 }
-.uxAppNavItem:hover{ background: rgba(0,0,0,0.05); }
-.uxAppNavItem.isActive{ background: rgba(8,230,254,0.12); border-color: rgba(8,230,254,0.22); }
 
-/* Responsive behavior for AppShell */
-@media (max-width: 980px){
-  .uxAppShell{
+.uxAppNavItem:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.uxAppNavItem.isActive {
+  background: rgba(8, 230, 254, 0.12);
+  border-color: rgba(8, 230, 254, 0.22);
+}
+
+/* =========================
+   Tablet
+   ========================= */
+
+@media (max-width: 980px) {
+  .uxAppShell {
+    grid-template-columns: minmax(0, 1fr);
+
+    width: 100%;
+    max-width: 100%;
+
     padding: 12px;
     gap: 12px;
-    grid-template-columns: 1fr;
   }
 
-  .uxSide{ display: none; }
+  .uxSide {
+    display: none;
+  }
+
+  .uxAppMain {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .uxAppThemeLight .uxAppMain {
+    width: 100%;
+  }
 }
 
-/* ===== State helpers for CSS Modules (no visual impact) ===== */
-.isActive{}
+/* =========================
+   Mobile
+   ========================= */
 
+@media (max-width: 720px) {
+  .uxAppShell {
+    min-height: 100dvh;
 
-/* === RainbowKit modal always on top === */
-:global([data-rk]) { 
+    padding:
+      max(8px, env(safe-area-inset-top))
+      8px
+      max(8px, env(safe-area-inset-bottom));
+
+    gap: 8px;
+  }
+
+  .uxAppThemeLight .uxAppMain {
+    padding: 8px;
+
+    border-radius: 20px;
+
+    box-shadow: 0 16px 45px rgba(0, 0, 0, 0.14);
+  }
+
+  .uxHeaderBitfi {
+    width: 100%;
+
+    border-radius: 18px;
+
+    padding: 10px;
+
+    gap: 8px;
+  }
+
+  .uxHeaderLogo {
+    flex: 1 1 auto;
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+
+    font-size: 14px;
+  }
+
+  .uxHeaderLogo span {
+    font-size: 9px;
+    letter-spacing: 0.06em;
+  }
+
+  .uxHeaderRight {
+    flex: 0 1 auto;
+
+    max-width: 68%;
+
+    gap: 5px;
+  }
+
+  .uxHeaderWallet {
+    min-width: 0;
+
+    height: 40px;
+
+    padding: 0 11px;
+
+    gap: 7px;
+  }
+
+  .uxHeaderWalletText {
+    max-width: 120px;
+
+    font-size: 13px;
+  }
+
+  .uxHeaderHamburger {
+    width: 42px;
+    height: 40px;
+    flex-basis: 42px;
+
+    border-radius: 12px;
+  }
+
+  .uxHeaderHamburger span:nth-child(1) {
+    width: 22px;
+  }
+
+  .uxHeaderHamburger span:nth-child(2) {
+    width: 25px;
+  }
+
+  .uxHeaderHamburger span:nth-child(3) {
+    width: 19px;
+  }
+
+  .uxNotice {
+    border-radius: 16px;
+  }
+
+  .uxNoticeText {
+    font-size: 12px;
+  }
+
+  .uxAppContent {
+    width: 100%;
+    max-width: 100%;
+
+    overflow-x: hidden;
+
+    padding-top: 8px;
+  }
+
+  .uxAppContent img,
+  .uxAppContent svg,
+  .uxAppContent video,
+  .uxAppContent canvas {
+    max-width: 100%;
+  }
+
+  .uxAppNavPanel {
+    left: 8px;
+    right: 8px;
+
+    top: max(8px, env(safe-area-inset-top));
+
+    max-height: calc(
+      100dvh - max(16px, env(safe-area-inset-top)) -
+        max(8px, env(safe-area-inset-bottom))
+    );
+
+    border-radius: 20px;
+  }
+}
+
+/* =========================
+   Small Phones
+   ========================= */
+
+@media (max-width: 430px) {
+  .uxAppShell {
+    padding-left: 6px;
+    padding-right: 6px;
+  }
+
+  .uxAppThemeLight .uxAppMain {
+    padding: 6px;
+
+    border-radius: 17px;
+  }
+
+  .uxHeaderBitfi {
+    padding: 8px;
+
+    border-radius: 16px;
+  }
+
+  .uxHeaderLogo {
+    font-size: 12px;
+  }
+
+  .uxHeaderLogo span {
+    display: none;
+  }
+
+  .uxHeaderRight {
+    max-width: 72%;
+  }
+
+  .uxHeaderWallet {
+    height: 38px;
+
+    padding: 0 9px;
+  }
+
+  .uxHeaderWalletText {
+    max-width: 92px;
+
+    font-size: 12px;
+  }
+
+  .uxHeaderHamburger {
+    width: 38px;
+    height: 38px;
+    flex-basis: 38px;
+  }
+}
+
+/* =========================
+   Very Small Phones
+   ========================= */
+
+@media (max-width: 360px) {
+  .uxHeaderWalletText {
+    max-width: 72px;
+  }
+
+  .uxHeaderWallet {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+
+  .uxHeaderRight {
+    max-width: 74%;
+  }
+}
+
+/* CSS Modules state helper */
+.isActive {}
+
+/* =========================
+   RainbowKit
+   ========================= */
+
+/*
+  Important:
+  RainbowKit should control the internal width of its own modal.
+  We only keep it above the application's drawer/header.
+*/
+
+:global([data-rk]) {
   z-index: 999999 !important;
 }
 
