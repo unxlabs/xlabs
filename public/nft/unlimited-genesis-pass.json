@@ -1,0 +1,23 @@
+{
+  "name": "Unlimited Genesis Pass",
+  "description": "The Genesis membership pass of the Unlimited X Labs ecosystem. Hold Genesis Passes to unlock membership tiers, XP boosts, referral boosts, exclusive campaigns, early access, and ecosystem privileges.",
+  "image": "ipfs://bafybeigfzxd75jaabrij77irqsrs3yplf6wqtfblxfqptey7fsd65at6le",
+  "attributes": [
+    {
+      "trait_type": "Collection",
+      "value": "Unlimited Genesis"
+    },
+    {
+      "trait_type": "Season",
+      "value": "Season 0"
+    },
+    {
+      "trait_type": "Network",
+      "value": "BNB Chain"
+    },
+    {
+      "trait_type": "Type",
+      "value": "Membership Pass"
+    }
+  ]
+}

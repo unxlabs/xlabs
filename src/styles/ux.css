@@ -1,0 +1,230 @@
+/* =========================
+   Landing (Only) – Global UX
+   Keep: Header + Nav + Dropdown + Mobile menu + PixelBMark
+   ========================= */
+
+
+/* ======================================================
+   Landing Mobile Nav (Drawer)
+   ====================================================== */
+
+/* B mosaic (Landing only) */
+.uxPxWrap{ width: 100%; max-width: 280px; }
+.uxPxGrid{
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 10px;
+}
+.uxPx{
+  width: 18px;
+  height: 18px;
+  border-radius: 6px;
+  background: var(--c);
+  transform: translate(var(--dx), var(--dy)) scale(0.86);
+  opacity: 0;
+  animation: uxPxIn 540ms cubic-bezier(.2,.9,.2,1) forwards;
+  animation-delay: var(--d);
+  box-shadow: 0 10px 22px rgba(0,0,0,0.25);
+}
+@keyframes uxPxIn{
+  to{
+    transform: translate(0px,0px) scale(1);
+    opacity: var(--o);
+  }
+}
+
+/* Mobile menu button (Landing) */
+.uxMobBtn{
+  display: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(255,255,255,0.06);
+  color: rgba(252,253,253,0.92);
+  cursor: pointer;
+}
+.uxMobBtn:hover{ background: rgba(255,255,255,0.08); }
+
+.uxMobBackdrop{
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(8px);
+  z-index: 300;
+}
+
+.uxMobPanel{
+  position: fixed;
+  left: 12px;
+  right: 12px;
+  top: 76px;
+  z-index: 310;
+  border-radius: 22px;
+  border: 1px solid rgba(252,253,253,0.14);
+  background: rgba(10,16,28,0.98);
+  padding: 14px;
+  box-shadow: 0 22px 70px rgba(0,0,0,0.60);
+}
+
+.uxMobTop{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(252,253,253,0.10);
+}
+.uxMobTitle{ font-weight: 1000; letter-spacing: .03em; }
+.uxMobB{ width: 140px; opacity: .95; }
+
+.uxMobSection{ padding-top: 12px; }
+.uxMobSectionTitle{
+  font-size: 12px;
+  opacity: .75;
+  font-weight: 1000;
+  letter-spacing: .08em;
+  margin-bottom: 8px;
+}
+
+.uxMobItem{
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.08);
+  text-decoration: none;
+  color: rgba(252,253,253,0.92);
+  margin-bottom: 10px;
+}
+.uxMobItem:hover{ background: rgba(255,255,255,0.10); border-color: rgba(140,210,170,0.25); }
+
+.uxMobIcon{
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(252,253,253,0.10);
+}
+
+.uxMobText{ display: inline-flex; flex-direction: column; line-height: 1.15; }
+.uxMobMain{ font-weight: 1000; }
+.uxMobSub{ font-size: 12px; opacity: .72; margin-top: 4px; }
+
+.uxEntryBtnFull{
+  width: 100%;
+  justify-content: center;
+  height: 44px;
+}
+
+.uxMobFooter{ margin-top: 6px; }
+
+/* responsive: hide landing nav, show hamburger */
+@media (max-width: 860px){
+  .uxNav{ display: none !important; }
+  .uxMobBtn{ display: inline-flex !important; }
+  .uxHeaderRightLanding{ gap: 10px; }
+}
+
+/* prevent dropdown going off-screen on wide desktops too */
+@media (min-width: 861px){
+  .uxNavItem:last-child .uxDropdownWide{ right: 0; left: auto; }
+  .uxNavItem:nth-last-child(2) .uxDropdownWide{ right: 0; left: auto; }
+}
+
+
+/* ======================================================
+   Landing Dropdown items (clean)
+   ====================================================== */
+
+/* remove bg/box from dropdown items until hover */
+.uxDropdown .uxDropItem,
+.uxDropdown .uxDropItemRow,
+.uxDropdown a.uxDropItemRow{
+  background: transparent !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+}
+
+.uxDropdown .uxDropItemRow:hover{
+  background: rgba(255,255,255,0.08) !important;
+  border-color: rgba(252,253,253,0.14) !important;
+}
+
+.uxDropdown .uxDropItemRow:active{
+  background: rgba(255,255,255,0.10) !important;
+  border-color: rgba(140,210,170,0.25) !important;
+  transform: translateY(1px);
+}
+
+
+/* ======================================================
+   Pixel B Mark (LandingHeader) – dots only + running glow
+   ====================================================== */
+
+/* stage (no background) */
+.uxPxStage{
+  --pxCell: 28px;
+  position: relative;
+  width: calc(12 * var(--pxCell));
+  height: calc(8 * var(--pxCell));
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* dot */
+.uxPxDot{
+  position: absolute;
+  width: calc(var(--pxCell) - 10px);
+  height: calc(var(--pxCell) - 10px);
+  margin: 5px;
+  border-radius: 10px;
+
+  background: rgba(140, 210, 170, 0.35);
+  box-shadow: 0 0 0 rgba(140,210,170,0);
+
+  transform: translate(var(--dx), var(--dy));
+  opacity: 0;
+
+  animation-name: uxSettle, uxGlowRun;
+  animation-duration: 680ms, 2400ms;
+  animation-timing-function: cubic-bezier(.2,.9,.2,1), linear;
+  animation-fill-mode: forwards, both;
+  animation-iteration-count: 1, infinite;
+
+  animation-delay: var(--d), calc(720ms + (var(--i) * 70ms));
+}
+
+@keyframes uxSettle{
+  to{ transform: translate(0,0); opacity: 1; }
+}
+
+@keyframes uxGlowRun{
+  0%{
+    background: rgba(140, 210, 170, 0.35);
+    box-shadow: 0 0 0 rgba(140,210,170,0);
+    filter: brightness(1);
+  }
+  8%{
+    background: rgba(140, 210, 170, 0.95);
+    box-shadow: 0 0 22px rgba(140,210,170,0.45);
+    filter: brightness(1.25);
+  }
+  16%{
+    background: rgba(140, 210, 170, 0.35);
+    box-shadow: 0 0 0 rgba(140,210,170,0);
+    filter: brightness(1);
+  }
+  100%{
+    background: rgba(140, 210, 170, 0.35);
+    box-shadow: 0 0 0 rgba(140,210,170,0);
+    filter: brightness(1);
+  }
+}

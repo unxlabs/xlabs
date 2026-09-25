@@ -1,0 +1,677 @@
+/* Header */
+.uxHeader{
+  position: sticky;
+  top: 0;
+  z-index: 80;
+  background: rgba(0, 8, 21, 0.35);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid rgba(252,253,253,0.08);
+}
+
+.uxHeaderInner{
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.uxBrand{ text-decoration: none; color: rgba(252,253,253,0.95); }
+.uxBrandText strong{
+  font-weight: 900;
+  letter-spacing: .03em;
+  opacity: .95;
+}
+
+/* Nav */
+.uxNav{
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.uxNavItem{ position: relative; }
+.uxNavBtn{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(255,255,255,0.06);
+  color: rgba(252,253,253,0.90);
+  cursor: pointer;
+}
+.uxNavBtn:hover,
+.uxNavBtn.isOpen{
+  border-color: rgba(8,230,254,0.22);
+  background: rgba(255,255,255,0.08);
+}
+
+/* Dropdown */
+.uxDropdown{
+  position: absolute;
+  top: calc(100% + 10px);
+  left: 0;
+  min-width: 280px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(252,253,253,0.14);
+  background: rgba(0,8,21,0.72);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+}
+
+.uxDropItem{
+  display: block;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(252,253,253,0.08);
+  background: rgba(255,255,255,0.04);
+  color: rgba(252,253,253,0.92);
+  text-decoration: none;
+  margin-bottom: 8px;
+}
+.uxDropItem:last-child{ margin-bottom: 0; }
+.uxDropItem:hover{
+  border-color: rgba(8,230,254,0.18);
+  background: rgba(2,15,40,0.35);
+}
+
+.uxDropTitle{ font-weight: 900; letter-spacing: .02em; }
+.uxDropDesc{ font-size: 12px; opacity: .75; margin-top: 4px; }
+
+/* Right */
+.uxHeaderRight{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.uxEntryBtn{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 38px;
+  padding: 0 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  font-weight: 900;
+  letter-spacing: .02em;
+  color: #001018;
+  background: rgba(252,253,253,0.90);
+  border: 1px solid rgba(252,253,253,0.12);
+}
+.uxEntryBtn:hover{
+  background: rgba(252,253,253,0.96);
+}
+
+.uxWalletMini{ display: inline-flex; }
+
+
+/* =========================
+   Landing Header v2 (BitFi-like)
+   - no icon circles
+   - solid dropdown background
+   - nav near Entry
+   - prevent overflow
+   - mobile hamburger + B mosaic
+   ========================= */
+
+.uxHeaderInnerLanding{
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.uxHeaderRightLanding{
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.uxNav{
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+/* remove circles behind nav icons */
+.uxNavIco{
+  width: auto !important;
+  height: auto !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  border: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: .9;
+}
+
+/* nav buttons: no pill background */
+.uxNavBtn{
+  background: transparent !important;
+  border: 0 !important;
+  padding: 10px 8px !important;
+  border-radius: 10px !important;
+  color: rgba(252,253,253,0.90) !important;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.uxNavBtn:hover,
+.uxNavBtn.isOpen{
+  background: rgba(255,255,255,0.06) !important;
+}
+
+/* dropdown: solid (not transparent) */
+.uxDropdown{
+  border-radius: 20px !important;
+  border: 1px solid rgba(252,253,253,0.14) !important;
+  background: rgba(10, 16, 28, 0.98) !important; /* SOLID */
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 60px rgba(0,0,0,0.55);
+  z-index: 200;
+}
+
+/* wide dropdown layout */
+.uxDropdownWide{
+  min-width: 680px;
+  display: grid;
+  grid-template-columns: 1.12fr 0.88fr;
+  gap: 14px;
+  padding: 14px;
+  left: auto;
+  right: 0; /* keep inside screen near Entry */
+}
+
+/* items: NOT transparent */
+.uxDropItemRow{
+  display: grid;
+  grid-template-columns: 46px 1fr;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.08) !important; /* solid-ish */
+}
+.uxDropItemRow:hover{
+  background: rgba(255,255,255,0.10) !important;
+  border-color: rgba(140,210,170,0.30);
+}
+
+/* icon box for dropdown items */
+.uxDropIconWrap{
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(252,253,253,0.10);
+  color: rgba(252,253,253,0.90);
+}
+
+.uxDropColRight{
+  border-radius: 18px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(255,255,255,0.06);
+  padding: 14px;
+  overflow: hidden;
+}
+/* ========= Pixel B ========= */
+.uxBMark {
+  --cell: 17px;
+  --gap: 10px;
+  --accent: 64, 235, 255;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  /* no background */
+  padding: 0;
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.uxBGrid {
+  position: relative;
+  width: calc(8 * (var(--cell) + var(--gap)));
+  height: calc(9 * (var(--cell) + var(--gap)));
+}
+
+.uxBDot {
+  position: absolute;
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 999px;
+  opacity: 0.18;
+  background: rgba(var(--accent), 0.35);
+  animation: bGlow 1.6s linear infinite;
+  animation-delay: calc(var(--i) * 70ms);
+}
+
+@keyframes bGlow {
+  0% {
+    opacity: 0.18;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  12% {
+    opacity: 1;
+    transform: scale(1.15);
+    box-shadow: 0 0 12px rgba(var(--accent), 0.55),
+      0 0 26px rgba(var(--accent), 0.3);
+  }
+  26% {
+    opacity: 0.28;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  100% {
+    opacity: 0.18;
+    transform: scale(1);
+    box-shadow: none;
+  }
+}
+
+/* ========= Dropdown overrides ========= */
+.uxDropColRightNoBg {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+  backdrop-filter: none !important;
+  border-radius: 0 !important;
+  min-width: 0 !important;
+}
+
+.uxDropColRightNoBg::before,
+.uxDropColRightNoBg::after {
+  content: none !important;
+  display: none !important;
+}
+
+.uxDropdownTight .uxDropItemRow {
+  padding-top: 0px !important;
+  padding-bottom: 0px !important;
+}
+
+.uxDropdownTight .uxDropColLeft {
+  gap: 1px !important;
+}
+
+/* ========= Brand text ========= */
+.uxBrandTextStack {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1;
+}
+
+.uxBrandTop {
+  font-weight: 800;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.78);
+  letter-spacing: 0.2px;
+}
+
+.uxBrandBottom {
+  font-weight: 900;
+  font-size: 14px;
+  letter-spacing: 0.35px;
+  background: linear-gradient(
+    90deg,
+    rgba(54, 235, 255, 0.95),
+    rgba(170, 120, 255, 0.95)
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+
+
+
+
+/* === FORCE tighter dropdown spacing === */
+
+/* خلي العمود يسار flex عشان gap يشتغل */
+.uxDropdownTight .uxDropColLeft {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+}
+
+/* قلل padding داخل كل خيار */
+.uxDropdownTight .uxDropItemRow {
+  padding: 6px 10px !important;
+  margin: 0 !important;
+}
+
+/* إذا كان التباعد جاي من فواصل بين العناصر */
+.uxDropdownTight .uxDropItemRow + .uxDropItemRow {
+  margin-top: 4px !important;
+}
+
+/* أحياناً العنوان/الوصف عاملين تباعد لحالهم */
+.uxDropdownTight .uxDropTitle,
+.uxDropdownTight .uxDropDesc {
+  margin: 0 !important;
+  line-height: 1.15 !important;
+}
+
+/* لو في مسافة بين الأيقونة والنص */
+.uxDropdownTight .uxDropIconWrap {
+  margin-right: 10px !important;
+}
+
+
+/* خلي عرض الدروب داون يصغر بس بدون ما يلزق العمودين */
+.uxDropdownWide.uxDropdownTight {
+  min-width: 0 !important;
+  width: 480px !important;     /* عدّلها 480/500 حسب اللي بدك */
+  max-width: 92vw !important;
+}
+
+/* اعمل gap بين عمود الخيارات وعمود الـ B */
+.uxDropdownWide.uxDropdownTight {
+  display: flex !important;
+  column-gap: 18px !important;  /* زوّد/قلّل */
+  align-items: stretch !important;
+}
+
+/* ثبّت عرض عمود الـ B */
+.uxDropdownWide.uxDropdownTight .uxDropColRight {
+  flex: 0 0 195px !important;   /* عرض ثابت لليمين */
+  width: 170px !important;
+}
+
+/* خلي عمود الخيارات يتمدد */
+.uxDropdownWide.uxDropdownTight .uxDropColLeft {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+}
+
+/* (اختياري) إذا بدك مسافة داخلية زيادة بدون تكبير كبير */
+.uxDropdownWide.uxDropdownTight .uxDropColLeft,
+.uxDropdownWide.uxDropdownTight .uxDropColRight {
+  padding: 6px 0 !important;
+}
+
+
+
+
+
+
+.uxBMark {
+  --cell: 14px;            /* حجم النقطة */
+  --gap: 7px;              /* المسافة */
+  --accent: 64, 235, 255;  /* سيان بتكوين */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.uxBGrid {
+  position: relative;
+  width: calc(9 * (var(--cell) + var(--gap)));
+  height: calc(9 * (var(--cell) + var(--gap)));
+}
+
+.uxBDot {
+  position: absolute;
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 999px;
+
+  /* base look */
+  opacity: 0.14;
+  background: rgba(var(--accent), 0.28);
+
+  /* subtle depth */
+  filter: saturate(1.1);
+
+  animation: bGlow 1.8s ease-in-out infinite;
+  animation-delay: calc(var(--i) * 60ms);
+  will-change: transform, opacity, box-shadow;
+}
+
+/* لمعة ناعمة بدل فلاش قوي */
+@keyframes bGlow {
+  0% {
+    opacity: 0.14;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  18% {
+    opacity: 0.95;
+    transform: scale(1.08);
+    box-shadow:
+      0 0 10px rgba(var(--accent), 0.38),
+      0 0 22px rgba(var(--accent), 0.20);
+  }
+  38% {
+    opacity: 0.22;
+    transform: scale(1);
+    box-shadow: none;
+  }
+  100% {
+    opacity: 0.14;
+    transform: scale(1);
+    box-shadow: none;
+  }
+}
+/* توسيط حرف B عمودياً داخل عمود اليمين */
+.uxDropColRightNoBg {
+  display: flex !important;
+  align-items: center !important;     /* عمودي بالنص */
+  justify-content: center !important; /* أفقي بالنص */
+}
+
+
+/* احترام إعدادات تقليل الحركة */
+@media (prefers-reduced-motion: reduce) {
+  .uxBDot {
+    animation: none !important;
+    opacity: 0.22 !important;
+  }
+}
+
+
+
+
+
+/* =========================
+   Mobile Menu (Clean)
+   ========================= */
+
+/* زر القائمة (Hamburger) */
+.uxMobileMenuBtn{
+  display: none;                 /* بيظهر بس على الموبايل داخل الميديا */
+  appearance: none;
+  border: none;
+  background: transparent !important; /* بدون خلفية */
+  padding: 10px;
+  border-radius: 12px;
+  color: inherit;
+  line-height: 0;
+  cursor: pointer;
+}
+
+.uxMobileMenuBtn:hover{
+  background: rgba(255,255,255,0.06) !important; /* لمسة hover خفيفة */
+}
+
+/* 3 شحطات ستايلي */
+.uxHamburger{
+  width: 26px;
+  height: 18px;
+  display: inline-flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.uxHamburger span{
+  display: block;
+  height: 2px;
+  width: 100%;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.88);
+  box-shadow: 0 0 10px rgba(54,235,255,0.08);
+}
+
+/* تدرّج بسيط بالعرض (ستايل) */
+.uxHamburger span:nth-child(1){ width: 100%; opacity: .95; }
+.uxHamburger span:nth-child(2){ width: 82%;  opacity: .85; }
+.uxHamburger span:nth-child(3){ width: 64%;  opacity: .78; }
+
+/* =========================
+   Overlay + Panel
+   ========================= */
+
+.uxMobileOverlay{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+}
+
+.uxMobileOverlayClick{
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(0,0,0,0.55);
+}
+
+.uxMobilePanel{
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  max-height: calc(100vh - 20px);
+  overflow: auto;
+
+  border-radius: 18px;
+  border: 1px solid rgba(255,255,255,0.12);
+background: #0b0b12;        /* لون ثابت غير شفاف */
+backdrop-filter: none;      /* شيل البلور */
+  box-shadow: 0 24px 60px rgba(0,0,0,0.55);
+  padding: 14px;
+}
+
+.uxMobileTop{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.uxMobileClose{
+  appearance: none;
+  border: none;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.9);
+  border-radius: 12px;
+  padding: 8px 10px;
+}
+
+.uxMobileBWrap{
+  margin: 14px 0 6px 0;
+  display: flex;
+  justify-content: center;
+}
+
+.uxMobileList{
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.uxMobileItem{
+  width: 100%;
+  text-align: left;
+  appearance: none;
+  border: 1px solid rgba(255,255,255,0.10);
+  background: rgba(255,255,255,0.04);
+  color: rgba(255,255,255,0.92);
+  border-radius: 14px;
+  padding: 12px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+}
+
+.uxMobileChevron{
+  opacity: 0.8;
+  font-weight: 900;
+}
+
+.uxMobileSub{
+  margin-top: -6px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.03);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.uxMobileLink{
+  color: rgba(255,255,255,0.92);
+  text-decoration: none;
+  padding: 10px 10px;
+  border-radius: 12px;
+  background: rgba(255,255,255,0.03);
+}
+
+.uxMobileSubDesc{
+  display: block;
+  opacity: 0.75;
+  font-weight: 500;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.uxMobileEntry{
+  text-decoration: none;
+  text-align: center;
+  border-radius: 14px;
+  padding: 12px 12px;
+  font-weight: 900;
+  color: rgba(255,255,255,0.96);
+  border: 1px solid rgba(54,235,255,0.25);
+  background: rgba(54,235,255,0.10);
+}
+
+/* =========================
+   Responsive behavior
+   ========================= */
+
+@media (max-width: 959px){
+  .uxHeaderRight.uxHeaderRightLanding{
+    display: none !important;
+  }
+
+  .uxMobileMenuBtn{
+    display: inline-flex !important;
+    align-items: center;
+    justify-content: center;
+  }
+}

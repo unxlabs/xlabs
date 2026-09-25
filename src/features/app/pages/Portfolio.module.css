@@ -1,0 +1,302 @@
+/* =========================
+   Portfolio page (FULLY ISOLATED)
+   ========================= */
+
+/* --- base shared blocks (copied from ux.css) --- */
+.uxPage{ padding: 6px 2px 20px; }
+
+.uxHeroCard{
+  border-radius: 22px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px);
+  padding: 22px;
+}
+
+.uxHeroTitle{ margin: 0; font-size: 34px; font-weight: 1000; }
+.uxHeroSub{ margin: 10px 0 0; opacity: .75; }
+
+.uxTiles{
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.uxTile{
+  border-radius: 22px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.06);
+  backdrop-filter: blur(14px);
+  padding: 18px;
+  display: block;
+  text-decoration: none;
+}
+
+.uxTileTop{ font-weight: 900; opacity: .90; }
+.uxTileBig{ margin-top: 10px; font-size: 26px; font-weight: 1000; }
+.uxTileCta{ margin-top: 14px; font-weight: 1000; opacity: .9; }
+
+.uxTabsRow{
+  margin-top: 14px;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.uxTabs{ display:flex; gap: 18px; }
+
+.uxTab{
+  border: 0;
+  background: transparent;
+  color: rgba(252,253,253,0.70);
+  font-weight: 1000;
+  cursor: pointer;
+  padding: 10px 2px;
+  border-bottom: 2px solid transparent;
+}
+.uxTab.isActive{
+  color: rgba(252,253,253,0.95);
+  border-bottom-color: rgba(252,253,253,0.7);
+}
+
+.uxNetPill{
+  padding: 10px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.06);
+  color: rgba(252,253,253,0.85);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.uxEmpty{
+  margin-top: 14px;
+  border-radius: 22px;
+  border: 1px solid rgba(252,253,253,0.10);
+  background: rgba(255,255,255,0.04);
+  backdrop-filter: blur(14px);
+  height: 320px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex-direction: column;
+  gap: 8px;
+  opacity: .9;
+}
+.uxEmptyIcon{ font-size: 34px; opacity: .7; }
+.uxEmptyText{ opacity: .75; font-weight: 900; }
+
+.uxHeroArt{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* hooks (no visual change, بس عشان ما ينكسر markup) */
+.uxHeroCopy{}
+.uxHeroLogo{}
+
+/* --- BitFi-like clean mobile (Light theme for /app) --- */
+/* Portfolio page layout */
+.uxPageLite{ padding: 6px 2px 90px; }
+
+.uxHeroCardLite{
+  background: rgba(255,255,255,0.94);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: var(--uxShadow);
+}
+
+.uxHeroGrid{
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  align-items: center;
+  gap: 18px;
+}
+
+/* ===== Hero right logo beside text (BitFi style) ===== */
+.uxHeroGridBitfi{
+  grid-template-columns: 1.25fr 0.75fr;
+  align-items: center;
+}
+
+.uxHeroArtBitfi{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.uxHeroLogoBTC{
+  width: 160px;
+  height: 160px;
+  border-radius: 34px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  font-size: 90px;
+  font-weight: 1000;
+  line-height: 1;
+
+  color: rgba(11,13,16,0.12);
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.06);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.55);
+}
+
+.uxHeroTitleLite{
+  color: rgba(11,13,16,0.92);
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.uxHeroSubLite{
+  color: var(--uxMuted);
+  font-weight: 400;
+  max-width: 25ch;
+}
+
+.uxHeroActions{ margin-top: 16px; }
+
+.uxLiteBtn{
+  height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 0;
+  cursor: pointer;
+  font-weight: 1000;
+  color: #fff;
+  background: #0a2c2b;
+}
+.uxLiteBtn:hover{ opacity: 0.95; }
+
+.uxLiteWalletPill{
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(0,0,0,0.08);
+  background: rgba(0,0,0,0.03);
+  font-weight: 1000;
+}
+.uxLiteWalletAddr{ letter-spacing: .02em; }
+.uxLiteWalletBal{ opacity: .65; font-weight: 900; }
+
+/* Tiles like BitFi */
+.uxTilesLite{ gap: 14px; }
+
+.uxTileLite{
+  color: rgba(11,13,16,0.92);
+  border: 1px solid rgba(0,0,0,0.08);
+  box-shadow: 0 16px 45px rgba(0,0,0,0.08);
+}
+
+.uxTileTopLite{ opacity: .85; }
+.uxTileBigLite{ font-size: 30px; }
+.uxTileCtaLite{ opacity: .9; }
+
+.uxTileGreen{ background: #3f7f7a; color: #fff; }
+.uxTileGreen .uxTileTopLite{ color: rgba(255,255,255,0.90); }
+.uxTileGreen .uxTileBigLite{ color: #fff; }
+
+.uxTileAqua{ background: #eaf3f2; }
+
+/* Tabs row (desktop) */
+.uxTabsRowLite{ border-top: 0; }
+
+.uxNetPillLite{
+  background: rgba(0,0,0,0.03);
+  border: 1px solid rgba(0,0,0,0.08);
+  color: rgba(11,13,16,0.80);
+}
+
+/* Empty */
+.uxEmptyLite{
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.08);
+  color: rgba(11,13,16,0.80);
+  height: 280px;
+}
+
+/* ===== Mobile Bottom Bar like BitFi ===== */
+.uxBottomBar{ display: none; }
+
+@media (max-width: 720px){
+  /* خلي الهيرو جنب بعض والـ ₿ يمين */
+  .uxHeroGrid.uxHeroGridBitfi{
+    grid-template-columns: 1fr 120px; /* نص + لوغو يمين */
+    gap: 12px;
+    align-items: start;
+  }
+
+  .uxHeroArtBitfi{
+    justify-content: flex-end;
+    padding-top: 6px;
+  }
+
+  .uxHeroLogoBTC{
+    width: 96px;
+    height: 96px;
+    font-size: 58px;
+    margin-top: 0;
+  }
+
+  /* tiles عمود واحد */
+  .uxTiles{ grid-template-columns: 1fr; }
+
+  /* Desktop tabs row hidden on mobile */
+  .uxTabsRow{ display: none; }
+
+  /* Bottom bar */
+  .uxBottomBar{
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 10px;
+
+    position: fixed;
+    left: 14px;
+    right: 14px;
+    bottom: 14px;
+    z-index: 250;
+
+    padding: 12px 12px;
+    border-radius: 22px;
+    border: 1px solid rgba(0,0,0,0.08);
+    background: rgba(255,255,255,0.92);
+    box-shadow: 0 18px 60px rgba(0,0,0,0.18);
+  }
+
+  .uxBottomTab{
+    border: 0;
+    background: transparent;
+    font-weight: 1000;
+    color: rgba(11,13,16,0.55);
+    padding: 10px 6px;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+
+  .uxBottomTab.isActive{
+    color: rgba(11,13,16,0.92);
+    border-bottom-color: rgba(11,13,16,0.55);
+  }
+
+  .uxBottomNet{
+    margin-left: auto;
+    padding: 10px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(0,0,0,0.08);
+    background: rgba(0,0,0,0.03);
+    font-weight: 900;
+    color: rgba(11,13,16,0.78);
+    white-space: nowrap;
+  }
+}
+
+/* helper for "active" state (no visual impact alone) */
+.isActive{}

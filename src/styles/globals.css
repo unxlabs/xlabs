@@ -342,17 +342,203 @@ canvas {
   opacity: 0.85;
 }
 
-
-
-
 /* Hard stop overflow from RainbowKit */
 [data-rk] { max-width: 100% !important; }
 [data-rk] * { max-width: 100% !important; }
 [data-rk] button { max-width: 100% !important; }
 
+/* ===== Wallet (final, matches project theme) ===== */
+.walletWrap { display: flex; align-items: center; }
+.walletRow { display: flex; align-items: center; gap: 10px; }
+
+.walletConnect{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 999px;
+}
+
+.walletIcon{
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.10);
+  border: 1px solid rgba(252,253,253,0.16);
+}
+
+.walletNet{
+  cursor: pointer;
+  padding: 10px 12px; /* يخلي الـ badge نفس ارتفاع الأزرار */
+}
+
+.walletDetails { position: relative; }
+.walletDetails summary { list-style: none; }
+.walletDetails summary::-webkit-details-marker { display: none; }
+
+.walletAccount{
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 14px; /* نفس .btn */
+}
+
+.walletAccName{ font-weight: 900; letter-spacing: 0.02em; }
+.walletAccBal{ font-size: 12px; opacity: 0.80; }
+
+.walletMenu{
+  position: absolute;
+  right: 0;
+  top: calc(100% + 10px);
+  min-width: 240px;
+  padding: 10px;
+  border-radius: 16px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(0,8,21,0.75);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 50px rgba(0,0,0,0.55);
+  display: grid;
+  gap: 8px;
+  z-index: 80;
+}
+
+.walletMenuHead{
+  padding: 8px 8px 2px;
+}
+
+.walletItem{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(252,253,253,0.08);
+  color: rgba(252,253,253,0.9);
+  background: rgba(2,15,40,0.22);
+  cursor: pointer;
+  text-align: left;
+}
+.walletItem:hover{
+  border-color: rgba(8,230,254,0.18);
+  background: rgba(2,15,40,0.35);
+}
+
+.walletItemDanger{
+  color: rgba(255,120,120,0.95);
+}
+.walletItemDanger:hover{
+  border-color: rgba(255,120,120,0.22);
+  background: rgba(255,120,120,0.10);
+}
 
 
 
-:root {
-  --cyan: rgba(8, 230, 254, 1);
+
+
+.walletNet { position: relative; gap: 10px; }
+.walletNetHint{
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(0,8,21,0.35);
+  color: rgba(252,253,253,0.85);
+}
+
+.walletNet:hover .walletNetHint{
+  border-color: rgba(8,230,254,0.18);
+  background: rgba(2,15,40,0.35);
+}
+
+
+
+
+
+/* ===== Chain switcher (icons + list) ===== */
+.walletChainDetails { position: relative; }
+.walletNet { cursor: pointer; padding: 10px 12px; gap: 10px; }
+.walletNetName { font-weight: 800; letter-spacing: 0.02em; }
+
+.walletNetHint{
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(0,8,21,0.35);
+  color: rgba(252,253,253,0.85);
+}
+
+.walletChainMenu { min-width: 290px; }
+
+.walletChainList{
+  max-height: 380px;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  padding: 4px;
+}
+
+/* Chain row */
+.walletChainItem{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(252,253,253,0.08);
+  color: rgba(252,253,253,0.9);
+  background: rgba(2,15,40,0.22);
+  cursor: pointer;
+  text-align: left;
+}
+.walletChainItem:hover{
+  border-color: rgba(8,230,254,0.18);
+  background: rgba(2,15,40,0.35);
+}
+.walletChainItem.isActive{
+  border-color: rgba(8,230,254,0.28);
+  box-shadow: 0 0 0 1px rgba(8,230,254,0.08) inset;
+}
+
+/* Logo */
+.walletChainLogoWrap{
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1px solid rgba(252,253,253,0.12);
+  background: rgba(0,8,21,0.35);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.walletChainLogo{
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.walletChainLogoFallback{
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--cyan), var(--magenta));
+  box-shadow: 0 0 14px rgba(8,230,254,0.22);
+}
+
+.walletChainName{
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.walletChainStatus{
+  margin-left: auto;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(8,230,254,0.18);
+  background: rgba(2,15,40,0.35);
+  color: rgba(252,253,253,0.9);
 }
