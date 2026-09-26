@@ -5,18 +5,18 @@ import styles from "./Landing.module.css";
 const features = [
   {
     tag: "01",
-    title: "Multi-chain access",
-    text: "One interface for yield opportunities across supported networks and assets.",
+    title: "Earn",
+    text: "Access dedicated Bitcoin and USD yield products through bfBTC and bfUSD.",
   },
   {
     tag: "02",
-    title: "Genesis membership",
-    text: "Hold Genesis Passes to unlock membership tiers, XP boosts, referral boosts and campaign access.",
+    title: "Stake",
+    text: "Stake supported assets on BNB Chain and manage your on-chain staking positions.",
   },
   {
     tag: "03",
-    title: "On-chain positions",
-    text: "Connect your wallet, enter the app and manage supported positions from one dashboard.",
+    title: "Genesis membership",
+    text: "Hold Genesis Passes to unlock membership tiers, XP boosts, referral boosts and campaign access.",
   },
 ];
 
@@ -41,9 +41,9 @@ export default function Landing() {
           </h1>
 
           <p className={styles.heroText}>
-            Access Bitcoin and USD yield products, build your ecosystem status
-            with Genesis membership, and manage your activity from one
-            multi-chain platform.
+            Access Bitcoin and USD yield products, stake supported assets,
+            build your ecosystem status with Genesis membership, and manage
+            your activity from one platform.
           </p>
 
           <div className={styles.heroActions}>
@@ -59,22 +59,22 @@ export default function Landing() {
           <div className={styles.trustRow}>
             <div>
               <strong>BNB Chain</strong>
-              <span>Genesis Pass live</span>
+              <span>Live network</span>
             </div>
 
             <div>
-              <strong>10,000</strong>
-              <span>Genesis max supply</span>
+              <strong>Earn</strong>
+              <span>bfBTC + bfUSD</span>
             </div>
 
             <div>
-              <strong>1.3 USDT</strong>
-              <span>Genesis price</span>
+              <strong>Stake</strong>
+              <span>BNB + BTCB + USDT</span>
             </div>
 
             <div>
-              <strong>Multi-chain</strong>
-              <span>Ecosystem direction</span>
+              <strong>Genesis</strong>
+              <span>10,000 max supply</span>
             </div>
           </div>
         </section>
@@ -82,15 +82,20 @@ export default function Landing() {
         <section className={styles.yieldSection}>
           <div className={styles.sectionHead}>
             <div>
-              <span className={styles.kicker}>YIELD PRODUCTS</span>
+              <span className={styles.kicker}>EARN PRODUCTS</span>
               <h2>Put your assets to work.</h2>
             </div>
 
-            <Link to="/app/stake">View staking →</Link>
+            <Link to="/app/earn?asset=btc">
+              Explore Earn →
+            </Link>
           </div>
 
           <div className={styles.yieldGrid}>
-            <Link to="/app/stake" className={styles.yieldCard}>
+            <Link
+              to="/app/earn?asset=btc"
+              className={styles.yieldCard}
+            >
               <div className={styles.assetIcon}>₿</div>
 
               <div className={styles.assetMeta}>
@@ -103,11 +108,20 @@ export default function Landing() {
                 <strong>6.95%</strong>
               </div>
 
-              <div className={styles.cardAction}>STAKE →</div>
+              <div className={styles.cardAction}>
+                EARN →
+              </div>
             </Link>
 
-            <Link to="/app/stake" className={styles.yieldCard}>
-              <div className={`${styles.assetIcon} ${styles.usdIcon}`}>$</div>
+            <Link
+              to="/app/earn?asset=usd"
+              className={styles.yieldCard}
+            >
+              <div
+                className={`${styles.assetIcon} ${styles.usdIcon}`}
+              >
+                $
+              </div>
 
               <div className={styles.assetMeta}>
                 <span>USD</span>
@@ -119,7 +133,9 @@ export default function Landing() {
                 <strong>87.85% ~ 118.99%</strong>
               </div>
 
-              <div className={styles.cardAction}>EARN →</div>
+              <div className={styles.cardAction}>
+                EARN →
+              </div>
             </Link>
           </div>
         </section>
@@ -133,13 +149,16 @@ export default function Landing() {
           </div>
 
           <div className={styles.genesisCopy}>
-            <span className={styles.kicker}>MEMBERSHIP LAYER</span>
+            <span className={styles.kicker}>
+              MEMBERSHIP LAYER
+            </span>
 
             <h2>Genesis Pass</h2>
 
             <p>
-              Membership that grows with your holdings. Unlock tier-based XP
-              and referral boosts, badges, early access and ecosystem campaign
+              Membership that grows with your holdings.
+              Unlock tier-based XP and referral boosts,
+              badges, early access and ecosystem campaign
               privileges.
             </p>
 
@@ -160,7 +179,10 @@ export default function Landing() {
               </div>
             </div>
 
-            <Link className={styles.primary} to="/app/genesis">
+            <Link
+              className={styles.primary}
+              to="/app/genesis"
+            >
               Get Genesis Pass <span>→</span>
             </Link>
           </div>
@@ -169,14 +191,26 @@ export default function Landing() {
         <section className={styles.featureSection}>
           <div className={styles.sectionHead}>
             <div>
-              <span className={styles.kicker}>ECOSYSTEM</span>
-              <h2>Built as one connected experience.</h2>
+              <span className={styles.kicker}>
+                ECOSYSTEM
+              </span>
+
+              <h2>
+                Built as one connected experience.
+              </h2>
             </div>
+
+            <Link to="/app/ecosystem">
+              Explore Ecosystem →
+            </Link>
           </div>
 
           <div className={styles.featureGrid}>
             {features.map((item) => (
-              <article className={styles.featureCard} key={item.tag}>
+              <article
+                className={styles.featureCard}
+                key={item.tag}
+              >
                 <span>{item.tag}</span>
                 <h3>{item.title}</h3>
                 <p>{item.text}</p>
@@ -186,22 +220,30 @@ export default function Landing() {
         </section>
 
         <section className={styles.stepsSection}>
-          <span className={styles.kicker}>GET STARTED</span>
+          <span className={styles.kicker}>
+            GET STARTED
+          </span>
 
-          <h2>From wallet to ecosystem in three steps.</h2>
+          <h2>
+            From wallet to ecosystem in three steps.
+          </h2>
 
           <div className={styles.steps}>
             <div>
               <b>1</b>
               <strong>Connect</strong>
-              <span>Open the app and connect a supported wallet.</span>
+              <span>
+                Open the app and connect a supported
+                wallet.
+              </span>
             </div>
 
             <div>
               <b>2</b>
               <strong>Choose</strong>
               <span>
-                Explore staking, Genesis membership and ecosystem products.
+                Choose Earn, Stake or Genesis membership
+                based on what you want to do.
               </span>
             </div>
 
@@ -209,12 +251,16 @@ export default function Landing() {
               <b>3</b>
               <strong>Participate</strong>
               <span>
-                Build your on-chain position and ecosystem activity.
+                Build and manage your on-chain activity
+                from the Unlimited X dashboard.
               </span>
             </div>
           </div>
 
-          <Link className={styles.primary} to="/app">
+          <Link
+            className={styles.primary}
+            to="/app"
+          >
             Enter Unlimited X Labs <span>→</span>
           </Link>
         </section>
@@ -224,10 +270,12 @@ export default function Landing() {
         <strong>Unlimited X Labs</strong>
 
         <span>
-          Multi-chain infrastructure for the on-chain economy.
+          Infrastructure for the on-chain economy.
         </span>
 
-        <Link to="/app">Launch App →</Link>
+        <Link to="/app">
+          Launch App →
+        </Link>
       </footer>
     </div>
   );

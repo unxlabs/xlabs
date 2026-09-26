@@ -1,272 +1,176 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-
 import styles from "./LandingHeader.module.css";
 
-type MenuKey = "products" | "resources" | "developers" | null;
-type MobileKey = "products" | "resources" | "developers" | null;
+type MenuKey = "products" | null;
 
-function Icon({
-  name,
-}: {
-  name:
-    | "btc"
-    | "usd"
-    | "brand"
-    | "faq"
-    | "support"
-    | "docs"
-    | "security";
-}) {
-  const common = {
-    width: 18,
-    height: 18,
-    viewBox: "0 0 24 24",
-    fill: "none",
-    xmlns: "http://www.w3.org/2000/svg",
-  };
+function BitcoinIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M12 2.75c-5.108 0-9.25 4.142-9.25 9.25S6.892 21.25 12 21.25 21.25 17.108 21.25 12 17.108 2.75 12 2.75Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
 
-  switch (name) {
-    case "btc":
-      return (
-        <svg {...common}>
-          <path
-            d="M12 2.75c-5.108 0-9.25 4.142-9.25 9.25S6.892 21.25 12 21.25 21.25 17.108 21.25 12 17.108 2.75 12 2.75Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M10.1 7.4h3.4c1.4 0 2.4.9 2.4 2.1 0 1-.7 1.7-1.4 1.9 1 .2 1.9 1 1.9 2.3 0 1.5-1.2 2.5-3 2.5h-3.3"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-          <path
-            d="M11.3 6.3v11.4M13.1 6.3v11.4"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      <path
+        d="M10.1 7.4h3.4c1.4 0 2.4.9 2.4 2.1 0 1-.7 1.7-1.4 1.9 1 .2 1.9 1 1.9 2.3 0 1.5-1.2 2.5-3 2.5h-3.3"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
 
-    case "usd":
-      return (
-        <svg {...common}>
-          <path
-            d="M4 7.5c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v9c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2v-9Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M8 12h8"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-          <path
-            d="M12 9.3c-1.2 0-2.1.6-2.1 1.5 0 1 1.1 1.3 2.1 1.5 1 .2 2.1.5 2.1 1.5 0 .9-.9 1.5-2.1 1.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      <path
+        d="M11.3 6.3v11.4M13.1 6.3v11.4"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
 
-    case "brand":
-      return (
-        <svg {...common}>
-          <path
-            d="M4.5 6.5h15v12h-15v-12Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M8 10.5h8M8 13.5h6"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-          <path
-            d="M7.5 6.5V5.7c0-.8.6-1.5 1.5-1.5h6c.9 0 1.5.7 1.5 1.5v.8"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-        </svg>
-      );
+function DollarIcon() {
+  return (
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M4 7.5c0-1.1.9-2 2-2h12c1.1 0 2 .9 2 2v9c0 1.1-.9 2-2 2H6c-1.1 0-2-.9-2-2v-9Z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+      />
 
-    case "faq":
-      return (
-        <svg {...common}>
-          <path
-            d="M12 21.25c5.108 0 9.25-4.142 9.25-9.25S17.108 2.75 12 2.75 2.75 6.892 2.75 12 6.892 21.25 12 21.25Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M9.6 9.6c.2-1.3 1.3-2.2 2.7-2.2 1.6 0 2.7 1 2.7 2.3 0 1.6-1.6 2-2.4 2.6-.6.4-.7.7-.7 1.5"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-          <path
-            d="M12 16.9h.01"
-            stroke="currentColor"
-            strokeWidth="2.6"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
+      <path
+        d="M8 12h8"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
 
-    case "support":
-      return (
-        <svg {...common}>
-          <path
-            d="M12 2.75c-4.9 0-8.9 4-8.9 8.9v2.2c0 1.7 1.4 3.1 3.1 3.1h.9v-6.2h-1v-1.1c0-3.4 2.8-6.2 6.2-6.2s6.2 2.8 6.2 6.2v1.1h-1v6.2h.9c1.7 0 3.1-1.4 3.1-3.1v-2.2c0-4.9-4-8.9-8.9-8.9Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M9.5 19.2c.8 1 1.7 1.6 2.5 1.6s1.7-.6 2.5-1.6"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
-
-    case "docs":
-      return (
-        <svg {...common}>
-          <path
-            d="M7 3.75h8.5c1 0 1.8.8 1.8 1.8v14.7c0 .6-.5 1-1 1H7c-1 0-1.8-.8-1.8-1.8V5.55c0-1 .8-1.8 1.8-1.8Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M8.2 8.2h6.6M8.2 11.2h6.6M8.2 14.2h4.6"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-          />
-        </svg>
-      );
-
-    case "security":
-      return (
-        <svg {...common}>
-          <path
-            d="M12 3.4 19 6.6v6.2c0 4.4-3 7.7-7 8.8-4-1.1-7-4.4-7-8.8V6.6L12 3.4Z"
-            stroke="currentColor"
-            strokeWidth="1.8"
-          />
-          <path
-            d="M9.2 12.1l1.8 1.9 3.8-4"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-        </svg>
-      );
-
-    default:
-      return null;
-  }
+      <path
+        d="M12 9.3c-1.2 0-2.1.6-2.1 1.5 0 1 1.1 1.3 2.1 1.5 1 .2 2.1.5 2.1 1.5 0 .9-.9 1.5-2.1 1.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
 }
 
 function DropItem({
-  icon,
+  type,
   title,
   desc,
   href,
+  onClick,
 }: {
-  icon:
-    | "btc"
-    | "usd"
-    | "brand"
-    | "faq"
-    | "support"
-    | "docs"
-    | "security";
+  type: "btc" | "usd";
   title: string;
   desc: string;
   href: string;
+  onClick?: () => void;
 }) {
-  const isInternal = href.startsWith("/");
-
-  const content = (
-    <>
-      <div className={styles.uxDropIconWrap} aria-hidden>
-        <Icon name={icon} />
+  return (
+    <Link
+      className={styles.uxDropItemRow}
+      to={href}
+      onClick={onClick}
+    >
+      <div
+        className={styles.uxDropIconWrap}
+        aria-hidden
+      >
+        {type === "btc" ? (
+          <BitcoinIcon />
+        ) : (
+          <DollarIcon />
+        )}
       </div>
+
       <div className={styles.uxDropText}>
-        <div className={styles.uxDropTitle}>{title}</div>
-        <div className={styles.uxDropDesc}>{desc}</div>
-      </div>
-    </>
-  );
+        <div className={styles.uxDropTitle}>
+          {title}
+        </div>
 
-  return isInternal ? (
-    <Link className={styles.uxDropItemRow} to={href}>
-      {content}
+        <div className={styles.uxDropDesc}>
+          {desc}
+        </div>
+      </div>
     </Link>
-  ) : (
-    <a className={styles.uxDropItemRow} href={href}>
-      {content}
-    </a>
   );
 }
 
 function PixelBMark() {
-  const dots = useMemo(() => {
-    const on = new Set<string>();
+  const dots = [
+    [1, 1],
+    [2, 1],
+    [3, 1],
+    [4, 1],
+    [5, 1],
+    [6, 1],
 
-    // عمودين يسار
-    for (let y = 1; y <= 7; y++) {
-      on.add(`1,${y}`);
-      on.add(`2,${y}`);
-    }
+    [1, 2],
+    [2, 2],
+    [6, 2],
+    [7, 2],
 
-    // خطوط B
-    for (let x = 2; x <= 6; x++) {
-      on.add(`${x},1`);
-      on.add(`${x},4`);
-      on.add(`${x},7`);
-    }
+    [1, 3],
+    [2, 3],
+    [6, 3],
+    [7, 3],
 
-    // يمين البطنين
-    for (let y = 2; y <= 3; y++) on.add(`7,${y}`);
-    for (let y = 5; y <= 6; y++) on.add(`7,${y}`);
+    [1, 4],
+    [2, 4],
+    [3, 4],
+    [4, 4],
+    [5, 4],
+    [6, 4],
 
-    // تقويس
-    on.add(`6,2`);
-    on.add(`6,3`);
-    on.add(`6,5`);
-    on.add(`6,6`);
+    [1, 5],
+    [2, 5],
+    [6, 5],
+    [7, 5],
 
-    // ترتيب الوميض
-    const pts = Array.from(on).map((k) => {
-      const [x, y] = k.split(",").map(Number);
-      return { x, y };
-    });
-    pts.sort((a, b) => a.y - b.y || a.x - b.x);
-    return pts;
-  }, []);
+    [1, 6],
+    [2, 6],
+    [6, 6],
+    [7, 6],
+
+    [1, 7],
+    [2, 7],
+    [3, 7],
+    [4, 7],
+    [5, 7],
+    [6, 7],
+  ];
 
   return (
-    <div className={styles.uxBMark} aria-hidden>
+    <div
+      className={styles.uxBMark}
+      aria-hidden
+    >
       <div className={styles.uxBGrid}>
-        {dots.map((p, i) => (
+        {dots.map(([x, y], index) => (
           <span
-            key={`${p.x}-${p.y}`}
+            key={`${x}-${y}-${index}`}
             className={styles.uxBDot}
             style={
               {
-                left: `calc(${p.x} * (var(--cell) + var(--gap)))`,
-                top: `calc(${p.y} * (var(--cell) + var(--gap)))`,
-                "--i": i,
-              } as any
+                left: `calc(${x} * (var(--cell) + var(--gap)))`,
+                top: `calc(${y} * (var(--cell) + var(--gap)))`,
+                "--i": index,
+              } as React.CSSProperties
             }
           />
         ))}
@@ -276,105 +180,165 @@ function PixelBMark() {
 }
 
 export default function LandingHeader() {
-  const [open, setOpen] = useState<MenuKey>(null);
+  const [open, setOpen] =
+    useState<MenuKey>(null);
 
-  // mobile
-  const [mobileOpen, setMobileOpen] = useState(false);
-  const [mobileSection, setMobileSection] = useState<MobileKey>(null);
+  const [mobileOpen, setMobileOpen] =
+    useState(false);
 
-  const toggle = (k: Exclude<MenuKey, null>) =>
-    setOpen((prev) => (prev === k ? null : k));
-  const close = () => setOpen(null);
+  const [mobileProductsOpen, setMobileProductsOpen] =
+    useState(false);
 
-  const toggleMobile = () => setMobileOpen((v) => !v);
-  const closeMobile = () => {
-    setMobileOpen(false);
-    setMobileSection(null);
+  const closeDesktop = () => {
+    setOpen(null);
   };
 
-  const toggleMobileSection = (k: Exclude<MobileKey, null>) =>
-    setMobileSection((prev) => (prev === k ? null : k));
+  const closeMobile = () => {
+    setMobileOpen(false);
+    setMobileProductsOpen(false);
+  };
 
-  // اقفل منيو الموبايل عند resize للديسكتوب
   useEffect(() => {
     const onResize = () => {
-      if (window.innerWidth >= 960) closeMobile();
+      if (window.innerWidth >= 960) {
+        closeMobile();
+      }
     };
-    window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    window.addEventListener(
+      "resize",
+      onResize,
+    );
+
+    return () =>
+      window.removeEventListener(
+        "resize",
+        onResize,
+      );
   }, []);
 
   return (
     <header className={styles.uxHeader}>
-      <div className={`${styles.uxHeaderInner} ${styles.uxHeaderInnerLanding}`}>
+      <div
+        className={`${styles.uxHeaderInner} ${styles.uxHeaderInnerLanding}`}
+      >
+        {/* BRAND */}
+
         <Link
           to="/"
           className={styles.uxBrand}
-          aria-label="Home"
+          aria-label="Unlimited X Labs home"
           onClick={closeMobile}
         >
-          <span className={styles.uxBrandTextStack}>
-            <span className={styles.uxBrandTop}>Unlimited</span>
-            <span className={styles.uxBrandBottom}>X Labs</span>
+          <span
+            className={styles.uxBrandTextStack}
+          >
+            <span
+              className={styles.uxBrandTop}
+            >
+              Unlimited
+            </span>
+
+            <span
+              className={styles.uxBrandBottom}
+            >
+              X Labs
+            </span>
           </span>
         </Link>
 
-        {/* زر الموبايل (hamburger) */}
+        {/* MOBILE MENU BUTTON */}
+
         <button
           className={styles.uxMobileMenuBtn}
           type="button"
-          aria-label="Open menu"
+          aria-label={
+            mobileOpen
+              ? "Close menu"
+              : "Open menu"
+          }
           aria-expanded={mobileOpen}
-          onClick={toggleMobile}
+          onClick={() =>
+            setMobileOpen((value) => !value)
+          }
         >
-          <span className={styles.uxHamburger} aria-hidden="true">
+          <span
+            className={styles.uxHamburger}
+            aria-hidden="true"
+          >
             <span />
             <span />
             <span />
           </span>
         </button>
 
-        {/* Desktop nav (كما هو) */}
-        <div className={`${styles.uxHeaderRight} ${styles.uxHeaderRightLanding}`}>
-          <nav className={styles.uxNav} aria-label="Primary">
-            {/* Products */}
+        {/* DESKTOP NAVIGATION */}
+
+        <div
+          className={`${styles.uxHeaderRight} ${styles.uxHeaderRightLanding}`}
+        >
+          <nav
+            className={styles.uxNav}
+            aria-label="Primary navigation"
+          >
+            {/* PRODUCTS */}
+
             <div
               className={styles.uxNavItem}
-              onMouseEnter={() => setOpen("products")}
-              onMouseLeave={close}
+              onMouseEnter={() =>
+                setOpen("products")
+              }
+              onMouseLeave={closeDesktop}
             >
               <button
                 className={`${styles.uxNavBtn} ${
-                  open === "products" ? styles.isOpen : ""
+                  open === "products"
+                    ? styles.isOpen
+                    : ""
                 }`}
                 type="button"
                 aria-haspopup="true"
-                aria-expanded={open === "products"}
-                onClick={() => toggle("products")}
+                aria-expanded={
+                  open === "products"
+                }
+                onClick={() =>
+                  setOpen((current) =>
+                    current === "products"
+                      ? null
+                      : "products",
+                  )
+                }
               >
                 Products
               </button>
 
-              {open === "products" ? (
+              {open === "products" && (
                 <div
                   className={`${styles.uxDropdown} ${styles.uxDropdownWide} ${styles.uxDropdownTight}`}
                   role="menu"
                 >
-                  <div className={styles.uxDropColLeft}>
+                  <div
+                    className={
+                      styles.uxDropColLeft
+                    }
+                  >
                     <DropItem
-                      icon="btc"
+                      type="btc"
                       title="bfBTC"
-                      desc="Yield-bearing Bitcoin LST"
-                      href="/app/stake"
+                      desc="Bitcoin yield product"
+                      href="/app/earn?asset=btc"
+                      onClick={closeDesktop}
                     />
+
                     <DropItem
-                      icon="usd"
+                      type="usd"
                       title="bfUSD"
-                      desc="Delta-neutral stable-coin"
-                      href="/app/stake"
+                      desc="USD yield product"
+                      href="/app/earn?asset=usd"
+                      onClick={closeDesktop}
                     />
                   </div>
+
                   <div
                     className={`${styles.uxDropColRight} ${styles.uxDropColRightNoBg}`}
                     aria-hidden
@@ -382,130 +346,91 @@ export default function LandingHeader() {
                     <PixelBMark />
                   </div>
                 </div>
-              ) : null}
+              )}
             </div>
 
-            {/* Resources */}
-            <div
-              className={styles.uxNavItem}
-              onMouseEnter={() => setOpen("resources")}
-              onMouseLeave={close}
+            {/* DIRECT DESTINATIONS */}
+
+            <Link
+              className={styles.uxNavBtn}
+              to="/app/stake"
             >
-              <button
-                className={`${styles.uxNavBtn} ${
-                  open === "resources" ? styles.isOpen : ""
-                }`}
-                type="button"
-                aria-haspopup="true"
-                aria-expanded={open === "resources"}
-                onClick={() => toggle("resources")}
-              >
-                Resources
-              </button>
+              Stake
+            </Link>
 
-              {open === "resources" ? (
-                <div
-                  className={`${styles.uxDropdown} ${styles.uxDropdownWide} ${styles.uxDropdownTight}`}
-                  role="menu"
-                >
-                  <div className={styles.uxDropColLeft}>
-                    <DropItem
-                      icon="brand"
-                      title="Brand Assets"
-                      desc="Press & brand materials"
-                      href="/app/learn"
-                    />
-                    <DropItem
-                      icon="faq"
-                      title="FAQ"
-                      desc="Frequently asked questions"
-                      href="/app/learn"
-                    />
-                    <DropItem
-                      icon="support"
-                      title="Help & Support"
-                      desc="How to use XLabs"
-                      href="/app/learn"
-                    />
-                  </div>
-                  <div
-                    className={`${styles.uxDropColRight} ${styles.uxDropColRightNoBg}`}
-                    aria-hidden
-                  >
-                    <PixelBMark />
-                  </div>
-                </div>
-              ) : null}
-            </div>
-
-            {/* Developers */}
-            <div
-              className={styles.uxNavItem}
-              onMouseEnter={() => setOpen("developers")}
-              onMouseLeave={close}
+            <Link
+              className={styles.uxNavBtn}
+              to="/app/genesis"
             >
-              <button
-                className={`${styles.uxNavBtn} ${
-                  open === "developers" ? styles.isOpen : ""
-                }`}
-                type="button"
-                aria-haspopup="true"
-                aria-expanded={open === "developers"}
-                onClick={() => toggle("developers")}
-              >
-                Developers
-              </button>
+              Genesis Pass
+            </Link>
 
-              {open === "developers" ? (
-                <div
-                  className={`${styles.uxDropdown} ${styles.uxDropdownWide} ${styles.uxDropdownTight}`}
-                  role="menu"
-                >
-                  <div className={styles.uxDropColLeft}>
-                    <DropItem
-                      icon="docs"
-                      title="Documentation"
-                      desc="Technical guides for dev"
-                      href="/app/learn"
-                    />
-                    <DropItem
-                      icon="security"
-                      title="Security"
-                      desc="Audit reports and information"
-                      href="/app/learn"
-                    />
-                  </div>
-                  <div
-                    className={`${styles.uxDropColRight} ${styles.uxDropColRightNoBg}`}
-                    aria-hidden
-                  >
-                    <PixelBMark />
-                  </div>
-                </div>
-              ) : null}
-            </div>
+            <Link
+              className={styles.uxNavBtn}
+              to="/app/ecosystem"
+            >
+              Ecosystem
+            </Link>
           </nav>
 
-          <Link className={styles.uxEntryBtn} to="/app">
-            Entry APP
+          <Link
+            className={styles.uxEntryBtn}
+            to="/app"
+          >
+            Launch App
           </Link>
         </div>
       </div>
 
-      {/* Mobile overlay + panel */}
-      {mobileOpen ? (
-        <div className={styles.uxMobileOverlay} role="dialog" aria-modal="true">
-          <div className={styles.uxMobilePanel}>
-            <div className={styles.uxMobileTop}>
-              <div className={styles.uxMobileBrand}>
-                <span className={styles.uxBrandTextStack}>
-                  <span className={styles.uxBrandTop}>Unlimited</span>
-                  <span className={styles.uxBrandBottom}>X Labs</span>
+      {/* MOBILE */}
+
+      {mobileOpen && (
+        <div
+          className={styles.uxMobileOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Navigation menu"
+        >
+          <div
+            className={styles.uxMobilePanel}
+          >
+            <div
+              className={styles.uxMobileTop}
+            >
+              <Link
+                to="/"
+                className={
+                  styles.uxMobileBrand
+                }
+                onClick={closeMobile}
+              >
+                <span
+                  className={
+                    styles.uxBrandTextStack
+                  }
+                >
+                  <span
+                    className={
+                      styles.uxBrandTop
+                    }
+                  >
+                    Unlimited
+                  </span>
+
+                  <span
+                    className={
+                      styles.uxBrandBottom
+                    }
+                  >
+                    X Labs
+                  </span>
                 </span>
-              </div>
+              </Link>
 
               <button
-                className={styles.uxMobileClose}
+                className={
+                  styles.uxMobileClose
+                }
                 type="button"
                 onClick={closeMobile}
                 aria-label="Close menu"
@@ -514,155 +439,161 @@ export default function LandingHeader() {
               </button>
             </div>
 
-            {/* B داخل الموبايل منيو */}
-            <div className={styles.uxMobileBWrap} aria-hidden>
+            <div
+              className={styles.uxMobileBWrap}
+              aria-hidden
+            >
               <PixelBMark />
             </div>
 
-            <div className={styles.uxMobileList}>
-              {/* Products */}
+            <div
+              className={styles.uxMobileList}
+            >
+              {/* PRODUCTS */}
+
               <button
-                className={styles.uxMobileItem}
+                className={
+                  styles.uxMobileItem
+                }
                 type="button"
-                onClick={() => toggleMobileSection("products")}
-                aria-expanded={mobileSection === "products"}
+                onClick={() =>
+                  setMobileProductsOpen(
+                    (value) => !value,
+                  )
+                }
+                aria-expanded={
+                  mobileProductsOpen
+                }
               >
-                Products{" "}
-                <span className={styles.uxMobileChevron}>
-                  {mobileSection === "products" ? "–" : "+"}
+                Earn Products
+
+                <span
+                  className={
+                    styles.uxMobileChevron
+                  }
+                >
+                  {mobileProductsOpen
+                    ? "–"
+                    : "+"}
                 </span>
               </button>
 
-              {mobileSection === "products" ? (
-                <div className={styles.uxMobileSub}>
+              {mobileProductsOpen && (
+                <div
+                  className={
+                    styles.uxMobileSub
+                  }
+                >
                   <Link
-                    className={styles.uxMobileLink}
-                    to="/app/stake"
+                    className={
+                      styles.uxMobileLink
+                    }
+                    to="/app/earn?asset=btc"
                     onClick={closeMobile}
                   >
-                    bfBTC{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Yield-bearing Bitcoin LST
+                    bfBTC
+
+                    <span
+                      className={
+                        styles.uxMobileSubDesc
+                      }
+                    >
+                      Bitcoin yield product
                     </span>
                   </Link>
+
                   <Link
-                    className={styles.uxMobileLink}
-                    to="/app/stake"
+                    className={
+                      styles.uxMobileLink
+                    }
+                    to="/app/earn?asset=usd"
                     onClick={closeMobile}
                   >
-                    bfUSD{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Delta-neutral stable-coin
+                    bfUSD
+
+                    <span
+                      className={
+                        styles.uxMobileSubDesc
+                      }
+                    >
+                      USD yield product
                     </span>
                   </Link>
                 </div>
-              ) : null}
+              )}
 
-              {/* Resources */}
-              <button
-                className={styles.uxMobileItem}
-                type="button"
-                onClick={() => toggleMobileSection("resources")}
-                aria-expanded={mobileSection === "resources"}
-              >
-                Resources{" "}
-                <span className={styles.uxMobileChevron}>
-                  {mobileSection === "resources" ? "–" : "+"}
-                </span>
-              </button>
+              {/* STAKE */}
 
-              {mobileSection === "resources" ? (
-                <div className={styles.uxMobileSub}>
-                  <Link
-                    className={styles.uxMobileLink}
-                    to="/app/learn"
-                    onClick={closeMobile}
-                  >
-                    Brand Assets{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Press & brand materials
-                    </span>
-                  </Link>
-                  <Link
-                    className={styles.uxMobileLink}
-                    to="/app/learn"
-                    onClick={closeMobile}
-                  >
-                    FAQ{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Frequently asked questions
-                    </span>
-                  </Link>
-                  <Link
-                    className={styles.uxMobileLink}
-                    to="/app/learn"
-                    onClick={closeMobile}
-                  >
-                    Help & Support{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      How to use XLabs
-                    </span>
-                  </Link>
-                </div>
-              ) : null}
-
-              {/* Developers */}
-              <button
-                className={styles.uxMobileItem}
-                type="button"
-                onClick={() => toggleMobileSection("developers")}
-                aria-expanded={mobileSection === "developers"}
-              >
-                Developers{" "}
-                <span className={styles.uxMobileChevron}>
-                  {mobileSection === "developers" ? "–" : "+"}
-                </span>
-              </button>
-
-              {mobileSection === "developers" ? (
-                <div className={styles.uxMobileSub}>
-                  <Link
-                    className={styles.uxMobileLink}
-                    to="/app/learn"
-                    onClick={closeMobile}
-                  >
-                    Documentation{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Technical guides for dev
-                    </span>
-                  </Link>
-                  <Link
-                    className={styles.uxMobileLink}
-                    to="/app/learn"
-                    onClick={closeMobile}
-                  >
-                    Security{" "}
-                    <span className={styles.uxMobileSubDesc}>
-                      Audit reports and information
-                    </span>
-                  </Link>
-                </div>
-              ) : null}
-
-              {/* Entry APP */}
               <Link
-                className={styles.uxMobileEntry}
+                className={
+                  styles.uxMobileItem
+                }
+                to="/app/stake"
+                onClick={closeMobile}
+              >
+                Stake
+              </Link>
+
+              {/* GENESIS */}
+
+              <Link
+                className={
+                  styles.uxMobileItem
+                }
+                to="/app/genesis"
+                onClick={closeMobile}
+              >
+                Genesis Pass
+              </Link>
+
+              {/* ECOSYSTEM */}
+
+              <Link
+                className={
+                  styles.uxMobileItem
+                }
+                to="/app/ecosystem"
+                onClick={closeMobile}
+              >
+                Ecosystem
+              </Link>
+
+              {/* LEARN */}
+
+              <Link
+                className={
+                  styles.uxMobileItem
+                }
+                to="/app/learn"
+                onClick={closeMobile}
+              >
+                Learn
+              </Link>
+
+              {/* APP */}
+
+              <Link
+                className={
+                  styles.uxMobileEntry
+                }
                 to="/app"
                 onClick={closeMobile}
               >
-                Entry APP
+                Launch App
               </Link>
             </div>
           </div>
 
-          {/* ضغط خارج اللوحة يغلق */}
           <button
-            className={styles.uxMobileOverlayClick}
+            className={
+              styles.uxMobileOverlayClick
+            }
+            type="button"
             onClick={closeMobile}
-            aria-label="Close overlay"
+            aria-label="Close menu"
           />
         </div>
-      ) : null}
+      )}
     </header>
   );
 }

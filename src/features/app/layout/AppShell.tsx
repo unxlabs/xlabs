@@ -8,35 +8,39 @@ import { APP_LINKS, SOCIAL_LINKS } from "@/features/app/config/nav";
 
 function SideNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
-    <nav className={styles.uxSideNav}>
-      {APP_LINKS.map((it) => (
+    <nav className={styles.uxSideNav} aria-label="App navigation">
+      {APP_LINKS.map((item) => (
         <NavLink
-          key={it.to}
-          to={it.to}
-          end={it.to === "/app"}
+          key={item.to}
+          to={item.to}
+          end={item.to === "/app"}
           className={({ isActive }) =>
             `${styles.uxSideItem} ${isActive ? styles.isActive : ""}`
           }
           onClick={onNavigate}
         >
-          {it.label}
+          {item.label}
         </NavLink>
       ))}
 
-      <div className={styles.uxSideDivider} />
+      {SOCIAL_LINKS.length > 0 && (
+        <>
+          <div className={styles.uxSideDivider} />
 
-      {SOCIAL_LINKS.map((it) => (
-        <a
-          key={it.to}
-          className={styles.uxSideItem}
-          href={it.to}
-          target="_blank"
-          rel="noreferrer"
-          onClick={onNavigate}
-        >
-          {it.label}
-        </a>
-      ))}
+          {SOCIAL_LINKS.map((item) => (
+            <a
+              key={item.to}
+              className={styles.uxSideItem}
+              href={item.to}
+              target="_blank"
+              rel="noreferrer"
+              onClick={onNavigate}
+            >
+              {item.label}
+            </a>
+          ))}
+        </>
+      )}
     </nav>
   );
 }
@@ -52,49 +56,67 @@ function HeaderWalletPill() {
         openConnectModal,
         authenticationStatus,
       }) => {
-        const ready = mounted && authenticationStatus !== "loading";
+        const ready =
+          mounted && authenticationStatus !== "loading";
+
         const connected =
           ready &&
           account &&
           chain &&
-          (!authenticationStatus || authenticationStatus === "authenticated");
+          (!authenticationStatus ||
+            authenticationStatus === "authenticated");
 
         return (
           <button
             className={styles.uxHeaderWallet}
             type="button"
-            onClick={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-
-              // للتأكد بالكونسول (احذفها بعد ما يزبط)
-              console.log("wallet click", {
-                ready,
-                connected,
-                authenticationStatus,
-                hasOpenConnectModal: !!openConnectModal,
-                hasOpenAccountModal: !!openAccountModal,
-              });
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
 
               if (!ready) return;
 
-              // ✅ مهم: فتح المودال بعد انتهاء حدث الكليك
               window.setTimeout(() => {
-                if (!connected) openConnectModal?.();
-                else openAccountModal?.();
+                if (!connected) {
+                  openConnectModal?.();
+                  return;
+                }
+
+                openAccountModal?.();
               }, 0);
             }}
-            aria-label="Wallet"
+            aria-label={
+              connected
+                ? `Wallet ${account?.displayName ?? ""}`
+                : "Connect wallet"
+            }
             disabled={!ready}
-            style={!ready ? { opacity: 0.6, cursor: "not-allowed" } : undefined}
+            style={
+              !ready
+                ? {
+                    opacity: 0.6,
+                    cursor: "not-allowed",
+                  }
+                : undefined
+            }
           >
-            <span className={styles.uxHeaderWalletIcon} aria-hidden>
+            <span
+              className={styles.uxHeaderWalletIcon}
+              aria-hidden
+            >
               <Wallet size={18} />
             </span>
 
-            <span className={styles.uxHeaderWalletText}>Wallet</span>
+            <span className={styles.uxHeaderWalletText}>
+              {connected
+                ? account?.displayName ?? "Wallet"
+                : "Wallet"}
+            </span>
 
-            <span className={styles.uxHeaderWalletChevron} aria-hidden>
+            <span
+              className={styles.uxHeaderWalletChevron}
+              aria-hidden
+            >
               <ChevronDown size={18} />
             </span>
           </button>
@@ -105,32 +127,36 @@ function HeaderWalletPill() {
 }
 
 export default function AppShell() {
-  const [mobOpen, setMobOpen] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
   const [noticeOpen, setNoticeOpen] = useState(true);
+
   const location = useLocation();
-  const noticeKey = useMemo(() => "ux_notice_v1_dismissed", []);
 
-  // سكّر منيو الموبايل عند تغيير الصفحة
+  const noticeKey = useMemo(
+    () => "ux_bnb_notice_v1_dismissed",
+    [],
+  );
+
   useEffect(() => {
-    setMobOpen(false);
-  }, [location.pathname]);
+    setMobileOpen(false);
+  }, [location.pathname, location.search]);
 
-  // تذكّر إغلاق الإشعار
   useEffect(() => {
     try {
-      const dismissed = window.localStorage.getItem(noticeKey) === "1";
+      const dismissed =
+        window.localStorage.getItem(noticeKey) === "1";
+
       setNoticeOpen(!dismissed);
     } catch {
       setNoticeOpen(true);
     }
   }, [noticeKey]);
 
-  // منع سكرول الخلفية لما منيو الموبايل مفتوحة
   useEffect(() => {
     const root = document.documentElement;
     const body = document.body;
 
-    if (mobOpen) {
+    if (mobileOpen) {
       root.classList.add("uxMenuOpen");
       body.classList.add("uxMenuOpen");
     } else {
@@ -142,13 +168,20 @@ export default function AppShell() {
       root.classList.remove("uxMenuOpen");
       body.classList.remove("uxMenuOpen");
     };
-  }, [mobOpen]);
+  }, [mobileOpen]);
 
   return (
-    <div className={`${styles.uxAppShell} ${styles.uxAppThemeLight}`}>
-      {/* Sidebar (Desktop) */}
+    <div
+      className={`${styles.uxAppShell} ${styles.uxAppThemeLight}`}
+    >
+      {/* DESKTOP SIDEBAR */}
+
       <aside className={styles.uxSide}>
-        <Link to="/" className={styles.uxSideBrand}>
+        <Link
+          to="/"
+          className={styles.uxSideBrand}
+          aria-label="Unlimited X Labs home"
+        >
           <strong>Unlimited</strong>
           <span>X Labs</span>
         </Link>
@@ -156,11 +189,17 @@ export default function AppShell() {
         <SideNav />
       </aside>
 
-      {/* Main */}
+      {/* APP */}
+
       <div className={styles.uxAppMain}>
-        {/* Header like BitFi */}
+        {/* HEADER */}
+
         <div className={styles.uxHeaderBitfi}>
-          <Link to="/" className={styles.uxHeaderLogo} aria-label="Home">
+          <Link
+            to="/"
+            className={styles.uxHeaderLogo}
+            aria-label="Unlimited X Labs home"
+          >
             <strong>Unlimited</strong>
             <span>X Labs</span>
           </Link>
@@ -171,7 +210,7 @@ export default function AppShell() {
             <button
               className={styles.uxHeaderHamburger}
               type="button"
-              onClick={() => setMobOpen(true)}
+              onClick={() => setMobileOpen(true)}
               aria-label="Open menu"
               title="Menu"
             >
@@ -182,22 +221,35 @@ export default function AppShell() {
           </div>
         </div>
 
-        {/* Notice banner */}
+        {/* NETWORK NOTICE */}
+
         {noticeOpen && (
-          <div className={styles.uxNotice} role="status" aria-live="polite">
+          <div
+            className={styles.uxNotice}
+            role="status"
+            aria-live="polite"
+          >
             <div className={styles.uxNoticeInner}>
               <div className={styles.uxNoticeText}>
-                On Ethereum — deposit and earn $BFI airdrop
+                Unlimited X Labs is live on BNB Chain — explore Earn,
+                Stake and Genesis Pass.
               </div>
+
               <button
                 className={styles.uxNoticeClose}
                 type="button"
                 aria-label="Dismiss"
                 onClick={() => {
                   setNoticeOpen(false);
+
                   try {
-                    window.localStorage.setItem(noticeKey, "1");
-                  } catch {}
+                    window.localStorage.setItem(
+                      noticeKey,
+                      "1",
+                    );
+                  } catch {
+                    // Ignore storage errors.
+                  }
                 }}
               >
                 <X size={16} />
@@ -206,72 +258,98 @@ export default function AppShell() {
           </div>
         )}
 
-        {/* Mobile Drawer */}
-        {mobOpen && (
+        {/* MOBILE NAVIGATION */}
+
+        {mobileOpen && (
           <>
             <div
               className={styles.uxAppNavBackdrop}
-              onClick={() => setMobOpen(false)}
+              onClick={() => setMobileOpen(false)}
               aria-hidden
             />
+
             <div
               className={styles.uxAppNavPanel}
               role="dialog"
               aria-modal="true"
+              aria-label="App navigation"
             >
               <div className={styles.uxAppNavTop}>
-                <div className={styles.uxAppNavTitle}>Menu</div>
+                <div className={styles.uxAppNavTitle}>
+                  Menu
+                </div>
+
                 <button
                   className={styles.uxAppNavClose}
                   type="button"
-                  onClick={() => setMobOpen(false)}
-                  aria-label="Close"
+                  onClick={() => setMobileOpen(false)}
+                  aria-label="Close menu"
                 >
                   <X size={18} />
                 </button>
               </div>
 
               <div className={styles.uxAppNavSection}>
-                <div className={styles.uxAppNavSectionTitle}>App</div>
+                <div
+                  className={styles.uxAppNavSectionTitle}
+                >
+                  App
+                </div>
+
                 <div className={styles.uxAppNavList}>
-                  {APP_LINKS.map((it) => (
+                  {APP_LINKS.map((item) => (
                     <NavLink
-                      key={it.to}
-                      to={it.to}
-                      end={it.to === "/app"}
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === "/app"}
                       className={({ isActive }) =>
                         `${styles.uxAppNavItem} ${
-                          isActive ? styles.isActive : ""
+                          isActive
+                            ? styles.isActive
+                            : ""
                         }`
                       }
-                      onClick={() => setMobOpen(false)}
+                      onClick={() =>
+                        setMobileOpen(false)
+                      }
                     >
-                      {it.label}
+                      {item.label}
                     </NavLink>
                   ))}
                 </div>
               </div>
 
-              <div className={styles.uxAppNavSection}>
-                <div className={styles.uxAppNavSectionTitle}>Links</div>
-                <div className={styles.uxAppNavList}>
-                  {SOCIAL_LINKS.map((it) => (
-                    <a
-                      key={it.to}
-                      className={styles.uxAppNavItem}
-                      href={it.to}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setMobOpen(false)}
-                    >
-                      {it.label}
-                    </a>
-                  ))}
+              {SOCIAL_LINKS.length > 0 && (
+                <div className={styles.uxAppNavSection}>
+                  <div
+                    className={styles.uxAppNavSectionTitle}
+                  >
+                    Links
+                  </div>
+
+                  <div className={styles.uxAppNavList}>
+                    {SOCIAL_LINKS.map((item) => (
+                      <a
+                        key={item.to}
+                        className={styles.uxAppNavItem}
+                        href={item.to}
+                        target="_blank"
+                        rel="noreferrer"
+                        onClick={() =>
+                          setMobileOpen(false)
+                        }
+                      >
+                        {item.label}
+                      </a>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
           </>
         )}
+
+        {/* PAGE */}
 
         <div className={styles.uxAppContent}>
           <Outlet />

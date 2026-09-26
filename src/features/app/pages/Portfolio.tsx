@@ -5,7 +5,13 @@ import styles from "./Portfolio.module.css";
 function HeroConnectButton() {
   return (
     <ConnectButton.Custom>
-      {({ account, chain, openConnectModal, mounted }) => {
+      {({
+        account,
+        chain,
+        openConnectModal,
+        openAccountModal,
+        mounted,
+      }) => {
         const ready = mounted;
         const connected = ready && account && chain;
 
@@ -34,9 +40,11 @@ function HeroConnectButton() {
         }
 
         return (
-          <div
+          <button
             className={styles.uxLiteWalletPill}
-            title={account.address}
+            type="button"
+            onClick={openAccountModal}
+            title="Open wallet"
           >
             <span className={styles.uxLiteWalletAddr}>
               {account.displayName}
@@ -47,6 +55,58 @@ function HeroConnectButton() {
                 {account.displayBalance}
               </span>
             ) : null}
+          </button>
+        );
+      }}
+    </ConnectButton.Custom>
+  );
+}
+
+function PortfolioStatus() {
+  return (
+    <ConnectButton.Custom>
+      {({ account, chain, mounted }) => {
+        const ready = mounted;
+        const connected = ready && account && chain;
+
+        if (!ready) {
+          return (
+            <div
+              className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
+            >
+              <div className={styles.uxEmptyIcon}>◎</div>
+
+              <div className={styles.uxEmptyText}>
+                Loading wallet...
+              </div>
+            </div>
+          );
+        }
+
+        if (!connected) {
+          return (
+            <div
+              className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
+            >
+              <div className={styles.uxEmptyIcon}>◎</div>
+
+              <div className={styles.uxEmptyText}>
+                Connect your wallet to view your portfolio
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div
+            className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
+          >
+            <div className={styles.uxEmptyIcon}>✓</div>
+
+            <div className={styles.uxEmptyText}>
+              Wallet connected. Choose Earn, Stake, Genesis Pass,
+              or History to manage your activity.
+            </div>
           </div>
         );
       }}
@@ -56,7 +116,11 @@ function HeroConnectButton() {
 
 export default function Portfolio() {
   return (
-    <div className={`${styles.uxPage} ${styles.uxPageLite}`}>
+    <div
+      className={`${styles.uxPage} ${styles.uxPageLite}`}
+    >
+      {/* HERO */}
+
       <div
         className={`${styles.uxHeroCard} ${styles.uxHeroCardLite}`}
       >
@@ -67,25 +131,25 @@ export default function Portfolio() {
             <h2
               className={`${styles.uxHeroTitle} ${styles.uxHeroTitleLite}`}
             >
-              Earn Where
+              Your On-Chain
             </h2>
 
             <h2
               className={`${styles.uxHeroTitle} ${styles.uxHeroTitleLite}`}
             >
-              You Store
+              Portfolio
             </h2>
 
             <p
               className={`${styles.uxHeroSub} ${styles.uxHeroSubLite}`}
             >
-              Stake assets across
+              Earn, stake and manage
             </p>
 
             <p
               className={`${styles.uxHeroSub} ${styles.uxHeroSubLite}`}
             >
-              chains and earn yield.
+              your activity on BNB Chain.
             </p>
 
             <div className={styles.uxHeroActions}>
@@ -105,6 +169,8 @@ export default function Portfolio() {
           </div>
         </div>
       </div>
+
+      {/* EARN PRODUCTS */}
 
       <div
         className={`${styles.uxTiles} ${styles.uxTilesLite}`}
@@ -156,79 +222,89 @@ export default function Portfolio() {
         </Link>
       </div>
 
-      {/* Desktop tabs row */}
+      {/* DESKTOP NAVIGATION */}
+
       <div
         className={`${styles.uxTabsRow} ${styles.uxTabsRowLite}`}
       >
         <div className={styles.uxTabs}>
-          <button
+          <Link
             className={`${styles.uxTab} ${styles.isActive}`}
-            type="button"
+            to="/app"
           >
             Portfolio
-          </button>
+          </Link>
 
-          <button
+          <Link
             className={styles.uxTab}
-            type="button"
+            to="/app/earn?asset=btc"
           >
-            Withdraw (0)
-          </button>
+            Earn
+          </Link>
 
-          <button
+          <Link
             className={styles.uxTab}
-            type="button"
+            to="/app/stake"
+          >
+            Stake
+          </Link>
+
+          <Link
+            className={styles.uxTab}
+            to="/app/history"
           >
             History
-          </button>
+          </Link>
         </div>
 
         <div
           className={`${styles.uxNetPill} ${styles.uxNetPillLite}`}
+          title="Current network"
         >
-          Ethereum ▾
+          BNB Chain
         </div>
       </div>
 
-      {/* Empty state */}
-      <div
-        className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
-      >
-        <div className={styles.uxEmptyIcon}>◎</div>
+      {/* PORTFOLIO STATUS */}
 
-        <div className={styles.uxEmptyText}>
-          Please connect your wallet to continue
-        </div>
-      </div>
+      <PortfolioStatus />
 
-      {/* Mobile bottom bar */}
-      <div
-        className={styles.uxBottomBar}
-        aria-hidden
-      >
-        <button
+      {/* MOBILE BOTTOM NAVIGATION */}
+
+      <div className={styles.uxBottomBar}>
+        <Link
           className={`${styles.uxBottomTab} ${styles.isActive}`}
-          type="button"
+          to="/app"
         >
           Portfolio
-        </button>
+        </Link>
 
-        <button
+        <Link
           className={styles.uxBottomTab}
-          type="button"
+          to="/app/earn?asset=btc"
         >
-          Withdraw (0)
-        </button>
+          Earn
+        </Link>
 
-        <button
+        <Link
           className={styles.uxBottomTab}
-          type="button"
+          to="/app/stake"
+        >
+          Stake
+        </Link>
+
+        <Link
+          className={styles.uxBottomTab}
+          to="/app/history"
         >
           History
-        </button>
+        </Link>
 
-        <div className={styles.uxBottomNet}>
-          Ethereum ▾
+        <div
+          className={styles.uxBottomNet}
+          title="Current network"
+        >
+          BNB Chain
         </div>
       </div>
     </div>

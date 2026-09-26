@@ -1,717 +1,1444 @@
 /* =========================
+
    Portfolio page
-   ========================= */
+
+   \========================= */
+
+
 
 .uxPage {
+
   width: 100%;
+
   min-width: 0;
+
   padding: 6px 2px 20px;
+
 }
+
+
 
 .uxHeroCard {
+
   min-width: 0;
+
   border-radius: 22px;
+
   border: 1px solid rgba(252, 253, 253, 0.10);
+
   background: rgba(255, 255, 255, 0.06);
+
   backdrop-filter: blur(14px);
+
   -webkit-backdrop-filter: blur(14px);
+
   padding: 22px;
+
 }
+
+
 
 .uxHeroTitle {
+
   margin: 0;
+
   font-size: 34px;
+
   font-weight: 1000;
+
 }
+
+
 
 .uxHeroSub {
+
   margin: 10px 0 0;
+
   opacity: 0.75;
+
 }
+
+
 
 .uxTiles {
+
   margin-top: 14px;
+
   display: grid;
+
   gap: 12px;
+
   grid-template-columns: repeat(2, minmax(0, 1fr));
+
 }
+
+
 
 .uxTile {
+
   min-width: 0;
+
   border-radius: 22px;
+
   border: 1px solid rgba(252, 253, 253, 0.10);
+
   background: rgba(255, 255, 255, 0.06);
+
   backdrop-filter: blur(14px);
+
   -webkit-backdrop-filter: blur(14px);
+
   padding: 18px;
+
   display: block;
+
   text-decoration: none;
+
 }
+
+
 
 .uxTileTop {
+
   font-weight: 900;
+
   opacity: 0.90;
+
 }
+
+
 
 .uxTileBig {
+
   margin-top: 10px;
+
   font-size: 26px;
+
   font-weight: 1000;
+
 }
+
+
 
 .uxTileCta {
+
   margin-top: 14px;
+
   font-weight: 1000;
+
   opacity: 0.9;
+
 }
+
+
 
 .uxTabsRow {
+
   margin-top: 14px;
+
   display: flex;
+
   align-items: center;
+
   justify-content: space-between;
+
   gap: 12px;
+
 }
+
+
 
 .uxTabs {
+
   display: flex;
+
   gap: 18px;
+
 }
+
+
 
 .uxTab {
+
   border: 0;
+
   background: transparent;
+
   color: rgba(252, 253, 253, 0.70);
+
   font-weight: 1000;
+
   cursor: pointer;
+
   padding: 10px 2px;
+
   border-bottom: 2px solid transparent;
+
+  text-decoration: none;
+
 }
+
+
 
 .uxTab.isActive {
+
   color: rgba(252, 253, 253, 0.95);
+
   border-bottom-color: rgba(252, 253, 253, 0.7);
+
 }
+
+
 
 .uxNetPill {
+
   padding: 10px 12px;
+
   border-radius: 999px;
+
   border: 1px solid rgba(252, 253, 253, 0.10);
+
   background: rgba(255, 255, 255, 0.06);
+
   color: rgba(252, 253, 253, 0.85);
+
   font-weight: 900;
+
   white-space: nowrap;
+
 }
+
+
 
 .uxEmpty {
+
   margin-top: 14px;
+
   border-radius: 22px;
+
   border: 1px solid rgba(252, 253, 253, 0.10);
+
   background: rgba(255, 255, 255, 0.04);
+
   backdrop-filter: blur(14px);
+
   -webkit-backdrop-filter: blur(14px);
+
   height: 320px;
 
+
+
   display: flex;
+
   align-items: center;
+
   justify-content: center;
+
   flex-direction: column;
 
+
+
   gap: 8px;
+
   opacity: 0.9;
+
 }
+
+
 
 .uxEmptyIcon {
+
   font-size: 34px;
+
   opacity: 0.7;
+
 }
+
+
 
 .uxEmptyText {
+
   opacity: 0.75;
+
   font-weight: 900;
+
   text-align: center;
+
 }
+
+
 
 .uxHeroArt {
+
   display: flex;
+
   align-items: center;
+
   justify-content: center;
+
 }
 
+
+
 .uxHeroCopy {
+
   min-width: 0;
+
 }
+
+
 
 .uxHeroLogo {}
 
+
+
 /* =========================
+
    Light / BitFi Style
-   ========================= */
+
+   \========================= */
+
+
 
 .uxPageLite {
+
   padding: 6px 2px 90px;
+
 }
+
+
 
 .uxHeroCardLite {
+
   background: rgba(255, 255, 255, 0.94);
+
   border: 1px solid rgba(0, 0, 0, 0.08);
+
   box-shadow: var(--uxShadow);
+
 }
+
+
 
 .uxHeroGrid {
+
   min-width: 0;
+
   display: grid;
+
   grid-template-columns: 1.35fr 0.65fr;
+
   align-items: center;
+
   gap: 18px;
+
 }
+
+
 
 .uxHeroGridBitfi {
+
   grid-template-columns: minmax(0, 1.25fr) minmax(160px, 0.75fr);
+
   align-items: center;
+
 }
+
+
 
 .uxHeroArtBitfi {
+
   min-width: 0;
+
   display: flex;
+
   align-items: center;
+
   justify-content: center;
+
 }
+
+
 
 .uxHeroLogoBTC {
+
   width: 160px;
+
   height: 160px;
+
   flex: 0 0 auto;
+
   border-radius: 34px;
 
+
+
   display: flex;
+
   align-items: center;
+
   justify-content: center;
 
+
+
   font-size: 90px;
+
   font-weight: 1000;
+
   line-height: 1;
 
+
+
   color: rgba(11, 13, 16, 0.12);
+
   background: rgba(0, 0, 0, 0.03);
+
   border: 1px solid rgba(0, 0, 0, 0.06);
 
+
+
   box-shadow:
+
     inset 0 0 0 1px rgba(255, 255, 255, 0.55);
+
 }
+
+
 
 .uxHeroTitleLite {
+
   color: rgba(11, 13, 16, 0.92);
+
   font-size: 20px;
+
   letter-spacing: -0.02em;
+
 }
+
+
 
 .uxHeroSubLite {
+
   color: var(--uxMuted);
+
   font-weight: 400;
+
   max-width: 25ch;
+
 }
+
+
 
 .uxHeroActions {
+
   width: 100%;
+
   min-width: 0;
+
   margin-top: 16px;
+
 }
 
+
+
 .uxLiteBtn {
+
   height: 44px;
+
   padding: 0 18px;
 
+
+
   border-radius: 999px;
+
   border: 0;
+
+
 
   cursor: pointer;
 
+
+
   font-weight: 1000;
 
+
+
   color: #fff;
+
   background: #0a2c2b;
 
+
+
   white-space: nowrap;
+
 }
+
+
 
 .uxLiteBtn:hover {
+
   opacity: 0.95;
+
 }
 
+
+
 /* =========================
+
    Connected Wallet Pill
-   ========================= */
+
+   \========================= */
+
+
 
 .uxLiteWalletPill {
+
   width: fit-content;
+
   max-width: 100%;
+
   min-width: 0;
 
+
+
   display: inline-flex;
+
   align-items: center;
+
   justify-content: space-between;
+
+
 
   gap: 18px;
 
+
+
   padding: 10px 14px;
 
+
+
   border-radius: 999px;
+
   border: 1px solid rgba(0, 0, 0, 0.08);
 
+
+
   background: rgba(0, 0, 0, 0.03);
+
+
 
   font-weight: 1000;
 
+
+
   overflow: hidden;
+
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+
 }
 
+
+
 .uxLiteWalletAddr {
+
   min-width: 0;
+
+
 
   letter-spacing: 0.02em;
 
+
+
   white-space: nowrap;
+
   overflow: hidden;
+
   text-overflow: ellipsis;
+
 }
+
+
 
 .uxLiteWalletBal {
+
   flex: 0 0 auto;
 
+
+
   opacity: 0.65;
+
   font-weight: 900;
 
+
+
   white-space: nowrap;
+
 }
 
+
+
 /* =========================
+
    Yield Tiles
-   ========================= */
+
+   \========================= */
+
+
 
 .uxTilesLite {
+
   gap: 14px;
+
 }
+
+
 
 .uxTileLite {
+
   color: rgba(11, 13, 16, 0.92);
 
+
+
   border: 1px solid rgba(0, 0, 0, 0.08);
+
+
 
   box-shadow:
+
     0 16px 45px rgba(0, 0, 0, 0.08);
+
 }
+
+
 
 .uxTileTopLite {
+
   opacity: 0.85;
+
 }
+
+
 
 .uxTileBigLite {
+
   font-size: 30px;
+
 }
+
+
 
 .uxTileCtaLite {
+
   opacity: 0.9;
+
 }
+
+
 
 .uxTileGreen {
+
   background: #3f7f7a;
+
   color: #fff;
+
 }
+
+
 
 .uxTileGreen .uxTileTopLite {
+
   color: rgba(255, 255, 255, 0.90);
+
 }
+
+
 
 .uxTileGreen .uxTileBigLite {
+
   color: #fff;
+
 }
+
+
 
 .uxTileAqua {
+
   background: #eaf3f2;
+
 }
 
+
+
 /* =========================
+
    Desktop Tabs
-   ========================= */
+
+   \========================= */
+
+
 
 .uxTabsRowLite {
+
   border-top: 0;
+
 }
+
+
 
 .uxNetPillLite {
+
   background: rgba(0, 0, 0, 0.03);
+
   border: 1px solid rgba(0, 0, 0, 0.08);
+
   color: rgba(11, 13, 16, 0.80);
+
 }
 
+
+
 /* =========================
+
    Empty State
-   ========================= */
+
+   \========================= */
+
+
 
 .uxEmptyLite {
+
   background: rgba(255, 255, 255, 0.92);
+
+
 
   border: 1px solid rgba(0, 0, 0, 0.08);
 
+
+
   color: rgba(11, 13, 16, 0.80);
 
+
+
   height: 280px;
+
 }
 
+
+
 /* =========================
+
    Mobile Bottom Bar
-   ========================= */
+
+   \========================= */
+
+
 
 .uxBottomBar {
+
   display: none;
+
 }
 
+
+
 /* =========================
+
    Tablet
-   ========================= */
+
+   \========================= */
+
+
 
 @media (max-width: 900px) {
+
   .uxHeroGridBitfi {
+
     grid-template-columns: minmax(0, 1fr) 140px;
+
   }
 
+
+
   .uxHeroLogoBTC {
+
     width: 130px;
+
     height: 130px;
+
+
 
     border-radius: 28px;
 
+
+
     font-size: 74px;
+
   }
+
 }
 
+
+
 /* =========================
+
    Mobile
-   ========================= */
+
+   \========================= */
+
+
 
 @media (max-width: 720px) {
+
   .uxPage {
+
     width: 100%;
+
     min-width: 0;
+
   }
+
+
 
   .uxPageLite {
+
     padding-bottom: 92px;
+
   }
+
+
 
   .uxHeroCard {
+
     padding: 18px;
+
   }
 
+
+
   /*
+
     Give the copy more real horizontal space.
+
     The old layout reserved 120px for the BTC art.
+
   */
+
   .uxHeroGrid.uxHeroGridBitfi {
+
     grid-template-columns: minmax(0, 1fr) 92px;
+
+
 
     gap: 14px;
 
+
+
     align-items: start;
+
   }
+
+
 
   .uxHeroCopy {
+
     min-width: 0;
+
   }
+
+
 
   .uxHeroArtBitfi {
+
     justify-content: flex-end;
 
+
+
     padding-top: 4px;
+
   }
 
+
+
   .uxHeroLogoBTC {
+
     width: 86px;
+
     height: 86px;
+
+
 
     border-radius: 26px;
 
+
+
     font-size: 51px;
 
+
+
     margin: 0;
+
   }
+
+
 
   .uxHeroTitleLite {
+
     font-size: 20px;
+
     line-height: 1.05;
+
   }
+
+
 
   .uxHeroSubLite {
+
     max-width: none;
 
+
+
     font-size: 16px;
+
     line-height: 1.45;
+
   }
+
+
 
   /*
+
     Wallet takes the full width of the text column.
+
     Address and balance are protected from wrapping.
+
   */
+
   .uxHeroActions {
+
     width: 100%;
+
+
 
     margin-top: 16px;
+
   }
 
+
+
   .uxLiteWalletPill {
+
     width: 100%;
+
     max-width: 100%;
+
+
 
     min-height: 46px;
 
+
+
     padding: 9px 13px;
 
+
+
     gap: 10px;
+
   }
+
+
 
   .uxLiteWalletAddr {
+
     flex: 1 1 auto;
 
+
+
     font-size: 14px;
 
+
+
     white-space: nowrap;
+
   }
+
+
 
   .uxLiteWalletBal {
+
     flex: 0 0 auto;
+
+
 
     font-size: 14px;
 
+
+
     white-space: nowrap;
+
   }
+
+
 
   .uxLiteBtn {
+
     width: 100%;
+
   }
+
+
 
   /* Yield cards stack vertically */
+
   .uxTiles {
+
     grid-template-columns: minmax(0, 1fr);
+
   }
+
+
 
   .uxTile {
+
     min-width: 0;
+
   }
+
+
 
   .uxTileBigLite {
+
     font-size: clamp(24px, 7vw, 30px);
 
+
+
     overflow-wrap: anywhere;
+
   }
+
+
 
   /* Desktop tabs disappear on mobile */
+
   .uxTabsRow {
+
     display: none;
+
   }
 
+
+
   /* Bottom navigation */
+
   .uxBottomBar {
+
     display: flex;
 
+
+
     align-items: center;
+
     justify-content: space-between;
+
+
 
     gap: 4px;
 
+
+
     position: fixed;
 
+
+
     left: 14px;
+
     right: 14px;
+
+
 
     bottom: max(14px, env(safe-area-inset-bottom));
 
+
+
     z-index: 250;
 
+
+
     padding: 8px;
+
+
 
     border-radius: 22px;
 
+
+
     border: 1px solid rgba(0, 0, 0, 0.08);
+
+
 
     background: rgba(255, 255, 255, 0.94);
 
+
+
     box-shadow:
+
       0 18px 60px rgba(0, 0, 0, 0.18);
 
+
+
     backdrop-filter: blur(16px);
+
     -webkit-backdrop-filter: blur(16px);
+
   }
 
+
+
   .uxBottomTab {
+
     min-width: 0;
+
+
 
     border: 0;
 
+
+
     background: transparent;
+
+
 
     font-weight: 1000;
 
+
+
     color: rgba(11, 13, 16, 0.55);
+
+
 
     padding: 10px 6px;
 
+
+
     border-bottom: 2px solid transparent;
+
+
 
     cursor: pointer;
 
+
+
     white-space: nowrap;
 
+
+
     font-size: 12px;
+
   }
+
+
 
   .uxBottomTab.isActive {
+
     color: rgba(11, 13, 16, 0.92);
 
+
+
     border-bottom-color: rgba(11, 13, 16, 0.55);
+
   }
 
+
+
   .uxBottomNet {
+
     min-width: 0;
+
+
 
     margin-left: auto;
 
+
+
     padding: 9px 10px;
+
+
 
     border-radius: 999px;
 
+
+
     border: 1px solid rgba(0, 0, 0, 0.08);
+
+
 
     background: rgba(0, 0, 0, 0.03);
 
+
+
     font-weight: 900;
+
+
 
     color: rgba(11, 13, 16, 0.78);
 
+
+
     white-space: nowrap;
 
+
+
     font-size: 12px;
+
   }
+
+  text-decoration: none;
+
 }
 
+
+
 /* =========================
+
    Small Phones
-   ========================= */
+
+   \========================= */
+
+
 
 @media (max-width: 430px) {
+
   .uxHeroCard {
+
     padding: 16px;
+
   }
+
+
 
   .uxHeroGrid.uxHeroGridBitfi {
+
     grid-template-columns: minmax(0, 1fr) 82px;
 
+
+
     gap: 10px;
+
   }
 
+
+
   .uxHeroLogoBTC {
+
     width: 78px;
+
     height: 78px;
+
+
 
     border-radius: 24px;
 
+
+
     font-size: 46px;
+
   }
+
+
 
   .uxHeroTitleLite {
+
     font-size: 19px;
+
   }
+
+
 
   .uxHeroSubLite {
+
     font-size: 15px;
+
   }
+
+
 
   .uxLiteWalletPill {
+
     padding: 9px 11px;
 
+
+
     gap: 8px;
+
   }
+
+
 
   .uxLiteWalletAddr,
+
   .uxLiteWalletBal {
+
     font-size: 12px;
+
   }
 
+
+
   .uxBottomBar {
+
     left: 8px;
+
     right: 8px;
+
+
 
     padding: 7px;
 
+
+
     border-radius: 18px;
+
   }
+
+
 
   .uxBottomTab {
+
     padding-left: 4px;
+
     padding-right: 4px;
 
+
+
     font-size: 10px;
+
   }
+
+
 
   .uxBottomNet {
+
     padding: 8px;
 
+
+
     font-size: 10px;
+
   }
+
 }
 
+
+
 /* =========================
+
    Very Small Phones
-   ========================= */
+
+   \========================= */
+
+
 
 @media (max-width: 360px) {
+
   .uxHeroCard {
+
     padding: 14px;
+
   }
+
+
 
   .uxHeroGrid.uxHeroGridBitfi {
+
     grid-template-columns: minmax(0, 1fr) 70px;
 
+
+
     gap: 8px;
+
   }
 
+
+
   .uxHeroLogoBTC {
+
     width: 66px;
+
     height: 66px;
+
+
 
     border-radius: 20px;
 
+
+
     font-size: 39px;
+
   }
+
+
 
   .uxHeroTitleLite {
+
     font-size: 18px;
+
   }
+
+
 
   .uxHeroSubLite {
+
     font-size: 14px;
+
   }
+
+
 
   .uxLiteWalletPill {
+
     padding-left: 9px;
+
     padding-right: 9px;
+
   }
+
+
 
   .uxLiteWalletAddr,
+
   .uxLiteWalletBal {
+
     font-size: 11px;
+
   }
+
+
 
   .uxBottomNet {
+
     display: none;
+
   }
+
+
 
   .uxBottomTab {
+
     flex: 1 1 0;
 
+
+
     text-align: center;
+
   }
+
 }
 
+
+
 /* CSS Modules helper */
+
 .isActive {}

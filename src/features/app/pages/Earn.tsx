@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
   useAccount,
   useBalance,
@@ -168,6 +169,13 @@ export default function Earn() {
   const [amount, setAmount] = useState("");
 
   const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const assetFromUrl: EarnAsset =
+      searchParams.get("asset") === "usd" ? "USD" : "BTC";
+
+    setSelectedAsset(assetFromUrl);
+  }, [searchParams]);
 
   const asset = ASSET_CONFIG[selectedAsset];
 
@@ -948,23 +956,39 @@ export default function Earn() {
             </div>
           </div>
 
-          <button
-            className={styles.earnButton}
-            type="button"
-            onClick={
-              needsApproval
-                ? handleApprove
-                : handleDeposit
-            }
-            disabled={
-              busy ||
-              depositsPaused === true
-            }
-          >
-            {getActionButtonLabel()}
+          {!isConnected ? (
+            <ConnectButton.Custom>
+              {({ openConnectModal, mounted }) => (
+                <button
+                  className={styles.earnButton}
+                  type="button"
+                  onClick={openConnectModal}
+                  disabled={!mounted}
+                >
+                  Connect Wallet to Earn
+                  <ChevronRight size={20} />
+                </button>
+              )}
+            </ConnectButton.Custom>
+          ) : (
+            <button
+              className={styles.earnButton}
+              type="button"
+              onClick={
+                needsApproval
+                  ? handleApprove
+                  : handleDeposit
+              }
+              disabled={
+                busy ||
+                depositsPaused === true
+              }
+            >
+              {getActionButtonLabel()}
 
-            {!busy && <ChevronRight size={20} />}
-          </button>
+              {!busy && <ChevronRight size={20} />}
+            </button>
+          )}
 
           {isConnected && needsApproval && (
             <div className={styles.approvalNotice}>
