@@ -7,6 +7,7 @@ import PageLoader from "@/components/PageLoader/PageLoader";
 
 const Portfolio = lazy(() => import("@/features/app/pages/Portfolio"));
 const Stake = lazy(() => import("@/features/app/pages/Stake"));
+const Earn = lazy(() => import("@/features/app/pages/Earn"));
 const Genesis = lazy(() => import("@/features/app/pages/Genesis"));
 const Rewards = lazy(() => import("@/features/app/pages/Rewards"));
 const History = lazy(() => import("@/features/app/pages/History"));
@@ -37,6 +38,15 @@ export default function App() {
           element={
             <Lazy>
               <Stake />
+            </Lazy>
+          }
+        />
+
+        <Route
+          path="/app/earn"
+          element={
+            <Lazy>
+              <Earn />
             </Lazy>
           }
         />
