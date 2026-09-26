@@ -12,7 +12,6 @@ import {
 import { bsc } from "wagmi/chains";
 import {
   formatEther,
-  formatUnits,
   parseEther,
 } from "viem";
 import {
