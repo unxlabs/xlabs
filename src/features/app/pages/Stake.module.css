@@ -943,3 +943,118 @@
     grid-template-columns: 1fr 1fr;
   }
 }
+/* =========================================================
+   DYNAMIC STAKING ASSET COLORS
+   ========================================================= */
+
+/* BNB */
+
+.stakeCardBnb {
+  --stake-accent: #f3ba2f;
+  --stake-accent-soft: rgba(243, 186, 47, 0.18);
+  --stake-accent-glow: rgba(243, 186, 47, 0.24);
+}
+
+/* BTCB / BITCOIN */
+
+.stakeCardBtc {
+  --stake-accent: #f7931a;
+  --stake-accent-soft: rgba(247, 147, 26, 0.18);
+  --stake-accent-glow: rgba(247, 147, 26, 0.24);
+}
+
+/* USDT */
+
+.stakeCardUsdt {
+  --stake-accent: #26a17b;
+  --stake-accent-soft: rgba(38, 161, 123, 0.18);
+  --stake-accent-glow: rgba(38, 161, 123, 0.24);
+}
+
+
+/* Dynamic glow inside staking card */
+
+.stakeCardBnb,
+.stakeCardBtc,
+.stakeCardUsdt {
+  background:
+    radial-gradient(
+      circle at 92% 8%,
+      var(--stake-accent-soft),
+      transparent 31%
+    ),
+    linear-gradient(
+      135deg,
+      #202126 0%,
+      #101114 72%
+    );
+}
+
+
+/* Main Stake / Approve button */
+
+.stakeCardBnb .stakeButton,
+.stakeCardBtc .stakeButton,
+.stakeCardUsdt .stakeButton {
+  background: var(--stake-accent);
+}
+
+
+/* Icons inside rules */
+
+.stakeCardBnb .rules svg,
+.stakeCardBtc .rules svg,
+.stakeCardUsdt .rules svg {
+  color: var(--stake-accent);
+}
+
+
+/* Small asset badge */
+
+.stakeCardBnb .miniBnb,
+.stakeCardBtc .miniBnb,
+.stakeCardUsdt .miniBnb {
+  background: var(--stake-accent);
+}
+
+
+/* BTC badge */
+
+.miniBtc {
+  background: #f7931a !important;
+}
+
+
+/* USDT badge */
+
+.miniUsdt {
+  background: #26a17b !important;
+}
+
+
+/* Percentage buttons hover */
+
+.stakeCardBnb .percentageRow button:hover,
+.stakeCardBtc .percentageRow button:hover,
+.stakeCardUsdt .percentageRow button:hover {
+  border-color: var(--stake-accent);
+}
+
+
+/* Contract accent / subtle visual response */
+
+.stakeCardBnb .contractLine code,
+.stakeCardBtc .contractLine code,
+.stakeCardUsdt .contractLine code {
+  color: var(--stake-accent);
+}
+
+
+/* Focus on amount input */
+
+.stakeCardBnb .amountBox:focus-within,
+.stakeCardBtc .amountBox:focus-within,
+.stakeCardUsdt .amountBox:focus-within {
+  border-color: var(--stake-accent);
+  box-shadow: 0 0 0 1px var(--stake-accent-glow);
+}
