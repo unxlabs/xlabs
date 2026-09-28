@@ -12,7 +12,9 @@ import { Toaster } from "react-hot-toast";
 import App from "./app/routes";
 import "./styles/globals.css";
 import "./styles/ux.css";
+
 import { wagmiConfig } from "./shared/config/wagmi";
+import { AuthProvider } from "./shared/auth/AuthProvider";
 
 const queryClient = new QueryClient();
 
@@ -21,12 +23,14 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <WagmiProvider config={wagmiConfig}>
       <QueryClientProvider client={queryClient}>
         <RainbowKitProvider locale="en-US" modalSize="compact">
-          <BrowserRouter>
-            <App />
-            <Toaster position="top-right" />
-          </BrowserRouter>
+          <AuthProvider>
+            <BrowserRouter>
+              <App />
+              <Toaster position="top-right" />
+            </BrowserRouter>
+          </AuthProvider>
         </RainbowKitProvider>
       </QueryClientProvider>
     </WagmiProvider>
-  </React.StrictMode>
+  </React.StrictMode>,
 );

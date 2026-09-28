@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, Outlet, useLocation } from "react-router-dom";
-import { ChevronDown, Wallet, X } from "lucide-react";
+import { Check, ChevronDown, LoaderCircle, LogIn, Wallet, X } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+
 import styles from "./AppShell.module.css";
 
 import { APP_LINKS, SOCIAL_LINKS } from "@/features/app/config/nav";
+import { useAuth } from "@/shared/auth/AuthProvider";
 
 function SideNav({ onNavigate }: { onNavigate?: () => void }) {
   return (
@@ -46,6 +48,13 @@ function SideNav({ onNavigate }: { onNavigate?: () => void }) {
 }
 
 function HeaderWalletPill() {
+  const {
+    isAuthenticated,
+    isAuthenticating,
+    authenticate,
+    error,
+  } = useAuth();
+
   return (
     <ConnectButton.Custom>
       {({
@@ -54,17 +63,45 @@ function HeaderWalletPill() {
         mounted,
         openAccountModal,
         openConnectModal,
-        authenticationStatus,
       }) => {
-        const ready =
-          mounted && authenticationStatus !== "loading";
+        const ready = mounted;
+        const connected = ready && Boolean(account && chain);
 
-        const connected =
-          ready &&
-          account &&
-          chain &&
-          (!authenticationStatus ||
-            authenticationStatus === "authenticated");
+        let label = "Wallet";
+
+        if (connected && isAuthenticating) {
+          label = "Signing...";
+        } else if (connected && isAuthenticated) {
+          label = account?.displayName ?? "Wallet";
+        } else if (connected) {
+          label = "Sign in";
+        }
+
+        const handleClick = async () => {
+          if (!ready || isAuthenticating) return;
+
+          if (!connected) {
+            openConnectModal?.();
+            return;
+          }
+
+          if (!isAuthenticated) {
+            await authenticate();
+            return;
+          }
+
+          openAccountModal?.();
+        };
+
+        let ariaLabel = "Connect wallet";
+
+        if (connected && isAuthenticating) {
+          ariaLabel = "Signing in to Unlimited X Labs";
+        } else if (connected && isAuthenticated) {
+          ariaLabel = `Authenticated wallet ${account?.displayName ?? ""}`;
+        } else if (connected) {
+          ariaLabel = "Sign in to Unlimited X Labs";
+        }
 
         return (
           <button
@@ -73,28 +110,19 @@ function HeaderWalletPill() {
             onClick={(event) => {
               event.preventDefault();
               event.stopPropagation();
-
-              if (!ready) return;
-
-              window.setTimeout(() => {
-                if (!connected) {
-                  openConnectModal?.();
-                  return;
-                }
-
-                openAccountModal?.();
-              }, 0);
+              void handleClick();
             }}
-            aria-label={
-              connected
-                ? `Wallet ${account?.displayName ?? ""}`
-                : "Connect wallet"
+            aria-label={ariaLabel}
+            title={
+              error && connected && !isAuthenticated
+                ? error
+                : undefined
             }
-            disabled={!ready}
+            disabled={!ready || isAuthenticating}
             style={
-              !ready
+              !ready || isAuthenticating
                 ? {
-                    opacity: 0.6,
+                    opacity: 0.72,
                     cursor: "not-allowed",
                   }
                 : undefined
@@ -104,21 +132,29 @@ function HeaderWalletPill() {
               className={styles.uxHeaderWalletIcon}
               aria-hidden
             >
-              <Wallet size={18} />
+              {!connected ? (
+                <Wallet size={18} />
+              ) : isAuthenticating ? (
+                <LoaderCircle size={18} />
+              ) : isAuthenticated ? (
+                <Check size={18} />
+              ) : (
+                <LogIn size={18} />
+              )}
             </span>
 
             <span className={styles.uxHeaderWalletText}>
-              {connected
-                ? account?.displayName ?? "Wallet"
-                : "Wallet"}
+              {label}
             </span>
 
-            <span
-              className={styles.uxHeaderWalletChevron}
-              aria-hidden
-            >
-              <ChevronDown size={18} />
-            </span>
+            {connected && isAuthenticated ? (
+              <span
+                className={styles.uxHeaderWalletChevron}
+                aria-hidden
+              >
+                <ChevronDown size={18} />
+              </span>
+            ) : null}
           </button>
         );
       }}
