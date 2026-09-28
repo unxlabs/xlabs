@@ -2,6 +2,8 @@ import {
 
   createPublicClient,
 
+  formatUnits,
+
   getAddress,
 
   http,
@@ -181,6 +183,28 @@ interface TierDistributionRow {
   holders: number;
   passes: number;
 }
+
+interface AdminWalletListRow {
+  user_id: string;
+  username: string | null;
+  user_status: string;
+  user_created_at: number;
+  last_active_at: number;
+  wallet_address: string;
+  wallet_status: string;
+  connected_at: number;
+  wallet_last_seen_at: number;
+  genesis_balance: number | null;
+  tier_key: string | null;
+  tier_name: string | null;
+  genesis_synced_at: number | null;
+}
+
+const ADMIN_USDT_TOKEN = "0x55d398326f99059fF775485246999027B3197955" as const;
+const ADMIN_BTCB_TOKEN = "0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c" as const;
+const ADMIN_ERC20_BALANCE_ABI = parseAbi([
+  "function balanceOf(address account) view returns (uint256)",
+]);
 
 const SESSION_COOKIE_NAME = "__Host-unxlabs_session";
 
@@ -2135,6 +2159,97 @@ export default {
           { success: false, error: "Unable to load admin overview." },
           500,
         );
+      }
+    }
+
+    // =========================================================
+    // ADMIN USERS & WALLET INTELLIGENCE
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/admin/users") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin) return jsonResponse(request, { success: false, authenticated: true, authorized: false }, 403);
+
+        const search = (url.searchParams.get("search") || "").trim().toLowerCase();
+        const tier = (url.searchParams.get("tier") || "").trim().toLowerCase();
+        const status = (url.searchParams.get("status") || "").trim().toLowerCase();
+        const limit = Math.min(Math.max(Number(url.searchParams.get("limit") || 50), 1), 100);
+        const offset = Math.max(Number(url.searchParams.get("offset") || 0), 0);
+
+        const conditions: string[] = ["w.is_primary = 1"];
+        const bindings: Array<string | number> = [];
+        if (search) {
+          conditions.push("(LOWER(w.address) LIKE ? OR LOWER(COALESCE(u.username, '')) LIKE ?)");
+          bindings.push(`%${search}%`, `%${search}%`);
+        }
+        if (tier) {
+          if (tier === "none") conditions.push("COALESCE(g.balance, 0) = 0");
+          else { conditions.push("LOWER(COALESCE(g.tier_key, 'none')) = ?"); bindings.push(tier); }
+        }
+        if (status) { conditions.push("LOWER(u.status) = ?"); bindings.push(status); }
+        const where = conditions.join(" AND ");
+
+        const countQuery = env.DB.prepare(`SELECT COUNT(*) AS count FROM users u JOIN wallets w ON w.user_id = u.id LEFT JOIN genesis_ownership g ON g.user_id = u.id WHERE ${where}`);
+        const listQuery = env.DB.prepare(`SELECT u.id AS user_id, u.username, u.status AS user_status, u.created_at AS user_created_at, u.last_active_at, w.address AS wallet_address, w.status AS wallet_status, w.connected_at, w.last_seen_at AS wallet_last_seen_at, g.balance AS genesis_balance, g.tier_key, g.tier_name, g.synced_at AS genesis_synced_at FROM users u JOIN wallets w ON w.user_id = u.id LEFT JOIN genesis_ownership g ON g.user_id = u.id WHERE ${where} ORDER BY u.last_active_at DESC LIMIT ? OFFSET ?`);
+        const countResult = await countQuery.bind(...bindings).first<CountRow>();
+        const listResult = await listQuery.bind(...bindings, limit, offset).all<AdminWalletListRow>();
+
+        return jsonResponse(request, {
+          success: true, authenticated: true, authorized: true,
+          admin: { role: admin.role }, total: countResult?.count ?? 0, limit, offset,
+          users: (listResult.results ?? []).map((row) => ({
+            userId: row.user_id, username: row.username, status: row.user_status,
+            createdAt: row.user_created_at, lastActiveAt: row.last_active_at,
+            wallet: { address: getAddress(row.wallet_address), status: row.wallet_status, connectedAt: row.connected_at, lastSeenAt: row.wallet_last_seen_at },
+            genesis: { balance: row.genesis_balance ?? 0, tierKey: row.tier_key ?? "none", tierName: row.tier_name ?? "None", syncedAt: row.genesis_synced_at },
+          })),
+        });
+      } catch (error) {
+        console.error("Admin users failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load admin users." }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname.startsWith("/admin/wallets/")) {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin) return jsonResponse(request, { success: false, authenticated: true, authorized: false }, 403);
+
+        const rawAddress = decodeURIComponent(url.pathname.slice("/admin/wallets/".length));
+        if (!isAddress(rawAddress)) return jsonResponse(request, { success: false, error: "Invalid wallet address." }, 400);
+        const address = getAddress(rawAddress);
+        const row = await env.DB.prepare(`SELECT u.id AS user_id, u.username, u.status AS user_status, u.created_at AS user_created_at, u.last_active_at, w.address AS wallet_address, w.status AS wallet_status, w.connected_at, w.last_seen_at AS wallet_last_seen_at, g.balance AS genesis_balance, g.tier_key, g.tier_name, g.synced_at AS genesis_synced_at FROM users u JOIN wallets w ON w.user_id = u.id LEFT JOIN genesis_ownership g ON g.user_id = u.id WHERE LOWER(w.address) = LOWER(?) LIMIT 1`).bind(address).first<AdminWalletListRow>();
+        if (!row) return jsonResponse(request, { success: false, error: "Wallet not found." }, 404);
+        if (!env.BNB_RPC_URL) return jsonResponse(request, { success: false, error: "BNB RPC is not configured." }, 503);
+
+        const client = createPublicClient({ transport: http(env.BNB_RPC_URL) });
+        const [bnb, usdt, btcb] = await Promise.all([
+          client.getBalance({ address }),
+          client.readContract({ address: ADMIN_USDT_TOKEN, abi: ADMIN_ERC20_BALANCE_ABI, functionName: "balanceOf", args: [address] }),
+          client.readContract({ address: ADMIN_BTCB_TOKEN, abi: ADMIN_ERC20_BALANCE_ABI, functionName: "balanceOf", args: [address] }),
+        ]);
+
+        return jsonResponse(request, {
+          success: true, authenticated: true, authorized: true,
+          user: { userId: row.user_id, username: row.username, status: row.user_status, createdAt: row.user_created_at, lastActiveAt: row.last_active_at },
+          wallet: { address, status: row.wallet_status, connectedAt: row.connected_at, lastSeenAt: row.wallet_last_seen_at },
+          genesis: { balance: row.genesis_balance ?? 0, tierKey: row.tier_key ?? "none", tierName: row.tier_name ?? "None", syncedAt: row.genesis_synced_at },
+          balances: {
+            BNB: { raw: bnb.toString(), formatted: formatUnits(bnb, 18) },
+            USDT: { raw: usdt.toString(), formatted: formatUnits(usdt, 18) },
+            BTCB: { raw: btcb.toString(), formatted: formatUnits(btcb, 18) },
+          },
+          balanceSource: "BNB Chain wallet balances",
+          generatedAt: Date.now(),
+        });
+      } catch (error) {
+        console.error("Admin wallet detail failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load wallet intelligence." }, 502);
       }
     }
 

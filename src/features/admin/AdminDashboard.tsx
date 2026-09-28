@@ -1,251 +1,37 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback,useEffect,useMemo,useState } from "react";
 import { Link } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import {
-  Activity,
-  ArrowLeft,
-  BadgeCheck,
-  CircleUserRound,
-  Crown,
-  LoaderCircle,
-  RefreshCw,
-  ShieldCheck,
-  TicketCheck,
-  Users,
-  WalletCards,
-} from "lucide-react";
-
+import { Activity,ArrowLeft,BadgeCheck,CircleUserRound,Copy,Crown,ExternalLink,LoaderCircle,RefreshCw,Search,ShieldCheck,TicketCheck,Users,WalletCards,X } from "lucide-react";
 import styles from "./AdminDashboard.module.css";
 import { useAuth } from "@/shared/auth/AuthProvider";
-import {
-  AdminApiError,
-  getAdminOverview,
-  type AdminOverviewResponse,
-} from "@/shared/api/admin";
+import { AdminApiError,getAdminOverview,getAdminUsers,getAdminWallet,type AdminOverviewResponse,type AdminUserItem,type AdminWalletDetailResponse } from "@/shared/api/admin";
 
-type LoadState = "idle" | "loading" | "ready" | "forbidden" | "error";
+type LoadState="idle"|"loading"|"ready"|"forbidden"|"error"; type View="overview"|"wallets";
+const n=(v:number)=>new Intl.NumberFormat("en-US").format(v);
+const dt=(v:number)=>new Intl.DateTimeFormat("en",{dateStyle:"medium",timeStyle:"short"}).format(new Date(v));
+const short=(a:string)=>`${a.slice(0,6)}…${a.slice(-4)}`;
+const bal=(v:string,d=6)=>{const x=Number(v);if(!Number.isFinite(x))return v;return new Intl.NumberFormat("en-US",{maximumFractionDigits:d}).format(x)};
 
-function formatNumber(value: number) {
-  return new Intl.NumberFormat("en-US").format(value);
-}
-
-function formatTime(value: number) {
-  return new Intl.DateTimeFormat("en", {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(value));
-}
-
-export default function AdminDashboard() {
-  const {
-    isAuthenticated,
-    isAuthenticating,
-    isRestoring,
-    authenticate,
-    wallet,
-  } = useAuth();
-
-  const [overview, setOverview] = useState<AdminOverviewResponse | null>(null);
-  const [loadState, setLoadState] = useState<LoadState>("idle");
-  const [message, setMessage] = useState<string | null>(null);
-
-  const loadOverview = useCallback(async () => {
-    if (!isAuthenticated) return;
-
-    setLoadState("loading");
-    setMessage(null);
-
-    try {
-      const result = await getAdminOverview();
-      setOverview(result);
-      setLoadState("ready");
-    } catch (error) {
-      if (error instanceof AdminApiError && error.status === 403) {
-        setLoadState("forbidden");
-      } else {
-        setLoadState("error");
-      }
-      setMessage(error instanceof Error ? error.message : "Unable to load admin analytics.");
-    }
-  }, [isAuthenticated]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      void loadOverview();
-    } else {
-      setOverview(null);
-      setLoadState("idle");
-    }
-  }, [isAuthenticated, loadOverview]);
-
-  const activeRate = useMemo(() => {
-    if (!overview || overview.users.total === 0) return 0;
-    return Math.round((overview.users.active7d / overview.users.total) * 100);
-  }, [overview]);
-
-  const holderRate = useMemo(() => {
-    if (!overview || overview.users.total === 0) return 0;
-    return Math.round((overview.genesis.holders / overview.users.total) * 100);
-  }, [overview]);
-
-  if (isRestoring) {
-    return (
-      <main className={styles.gate}>
-        <LoaderCircle className={styles.spin} size={28} />
-        <h1>Restoring admin session</h1>
-        <p>Checking your existing Unlimited X Labs session.</p>
-      </main>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return (
-      <main className={styles.gate}>
-        <div className={styles.gateIcon}><ShieldCheck size={30} /></div>
-        <span className={styles.eyebrow}>Restricted area</span>
-        <h1>Unlimited X Labs Admin</h1>
-        <p>Connect and sign in with an authorized admin wallet to continue.</p>
-        <ConnectButton.Custom>
-          {({ account, chain, mounted, openConnectModal }) => {
-            const connected = mounted && Boolean(account && chain);
-            return (
-              <button
-                className={styles.primaryButton}
-                type="button"
-                disabled={!mounted || isAuthenticating}
-                onClick={() => {
-                  if (!connected) openConnectModal?.();
-                  else void authenticate();
-                }}
-              >
-                {isAuthenticating ? "Signing in…" : connected ? "Sign in" : "Connect wallet"}
-              </button>
-            );
-          }}
-        </ConnectButton.Custom>
-        <Link className={styles.backLink} to="/app"><ArrowLeft size={16} /> Back to app</Link>
-      </main>
-    );
-  }
-
-  if (loadState === "forbidden") {
-    return (
-      <main className={styles.gate}>
-        <div className={styles.gateIcon}><ShieldCheck size={30} /></div>
-        <span className={styles.eyebrow}>Access denied</span>
-        <h1>Admin permission required</h1>
-        <p>{message || "This wallet is authenticated but is not an active administrator."}</p>
-        <Link className={styles.primaryLink} to="/app">Return to app</Link>
-      </main>
-    );
-  }
-
-  if (loadState === "loading" && !overview) {
-    return (
-      <main className={styles.gate}>
-        <LoaderCircle className={styles.spin} size={28} />
-        <h1>Loading operations</h1>
-        <p>Reading the latest platform analytics from D1.</p>
-      </main>
-    );
-  }
-
-  if (!overview) {
-    return (
-      <main className={styles.gate}>
-        <h1>Admin analytics unavailable</h1>
-        <p>{message || "The overview could not be loaded."}</p>
-        <button className={styles.primaryButton} type="button" onClick={() => void loadOverview()}>
-          Try again
-        </button>
-      </main>
-    );
-  }
-
-  const cards = [
-    { label: "Registered users", value: overview.users.total, detail: `+${overview.users.new7d} in 7 days`, icon: Users },
-    { label: "Active users · 7d", value: overview.users.active7d, detail: `${activeRate}% of registered users`, icon: Activity },
-    { label: "Connected wallets", value: overview.wallets.total, detail: "Non-blocked wallets", icon: WalletCards },
-    { label: "Genesis holders", value: overview.genesis.holders, detail: `${holderRate}% of registered users`, icon: Crown },
-    { label: "Genesis passes", value: overview.genesis.passes, detail: "Synced on BNB Chain", icon: TicketCheck },
-    { label: "New users · 30d", value: overview.users.new30d, detail: `${overview.users.newToday} today`, icon: CircleUserRound },
-  ];
-
-  return (
-    <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <Link className={styles.brand} to="/"><strong>Unlimited</strong><span>X Labs</span></Link>
-        <div className={styles.sideLabel}>OPERATIONS</div>
-        <div className={styles.sideActive}><Activity size={18} /> Overview</div>
-        <div className={styles.sideSoon}>XP & progression <span>Soon</span></div>
-        <div className={styles.sideSoon}>Missions <span>Soon</span></div>
-        <div className={styles.sideSoon}>Referrals <span>Soon</span></div>
-        <div className={styles.sideSoon}>Season & airdrop <span>Soon</span></div>
-        <div className={styles.sideFooter}>
-          <ShieldCheck size={17} /> {overview.admin.role.replace("_", " ")}
-        </div>
-      </aside>
-
-      <main className={styles.main}>
-        <header className={styles.header}>
-          <div>
-            <span className={styles.eyebrow}>Admin control center</span>
-            <h1>Platform overview</h1>
-            <p>Live operational view of users, activity and Genesis ownership.</p>
-          </div>
-          <div className={styles.headerActions}>
-            <div className={styles.walletChip}><BadgeCheck size={16} />{wallet?.address ? `${wallet.address.slice(0, 6)}…${wallet.address.slice(-4)}` : "Admin"}</div>
-            <button className={styles.refreshButton} type="button" onClick={() => void loadOverview()} disabled={loadState === "loading"}>
-              <RefreshCw className={loadState === "loading" ? styles.spin : undefined} size={16} /> Refresh
-            </button>
-            <Link className={styles.appLink} to="/app">Open app</Link>
-          </div>
-        </header>
-
-        <section className={styles.metrics} aria-label="Key platform metrics">
-          {cards.map(({ label, value, detail, icon: Icon }) => (
-            <article className={styles.metricCard} key={label}>
-              <div className={styles.metricTop}><span>{label}</span><Icon size={19} /></div>
-              <strong>{formatNumber(value)}</strong>
-              <small>{detail}</small>
-            </article>
-          ))}
-        </section>
-
-        <section className={styles.grid}>
-          <article className={styles.panel}>
-            <div className={styles.panelHeading}><div><span className={styles.eyebrow}>Growth</span><h2>User activity</h2></div></div>
-            <div className={styles.rows}>
-              <div><span>New today</span><strong>{formatNumber(overview.users.newToday)}</strong></div>
-              <div><span>New · 7 days</span><strong>{formatNumber(overview.users.new7d)}</strong></div>
-              <div><span>New · 30 days</span><strong>{formatNumber(overview.users.new30d)}</strong></div>
-              <div><span>Active · 7 days</span><strong>{formatNumber(overview.users.active7d)}</strong></div>
-              <div><span>Active · 30 days</span><strong>{formatNumber(overview.users.active30d)}</strong></div>
-            </div>
-          </article>
-
-          <article className={styles.panel}>
-            <div className={styles.panelHeading}><div><span className={styles.eyebrow}>Genesis</span><h2>Tier distribution</h2></div><Crown size={21} /></div>
-            {overview.genesis.tierDistribution.length === 0 ? (
-              <div className={styles.empty}>No synced Genesis holders yet.</div>
-            ) : (
-              <div className={styles.tiers}>
-                {overview.genesis.tierDistribution.map((tier) => (
-                  <div className={styles.tier} key={tier.tier_key}>
-                    <div><strong>{tier.tier_name}</strong><span>{formatNumber(tier.holders)} holder{tier.holders === 1 ? "" : "s"}</span></div>
-                    <b>{formatNumber(tier.passes)} passes</b>
-                  </div>
-                ))}
-              </div>
-            )}
-          </article>
-        </section>
-
-        <footer className={styles.footer}>
-          <span>Generated {formatTime(overview.generatedAt)}</span>
-          <span>Today: {overview.periods.todayTimezone} · 7d/30d: rolling windows</span>
-        </footer>
-      </main>
-    </div>
-  );
+export default function AdminDashboard(){
+ const {isAuthenticated,isAuthenticating,isRestoring,authenticate,wallet}=useAuth();
+ const [overview,setOverview]=useState<AdminOverviewResponse|null>(null); const [state,setState]=useState<LoadState>("idle"); const [message,setMessage]=useState<string|null>(null); const [view,setView]=useState<View>("overview");
+ const [users,setUsers]=useState<AdminUserItem[]>([]); const [total,setTotal]=useState(0); const [usersLoading,setUsersLoading]=useState(false); const [search,setSearch]=useState(""); const [tier,setTier]=useState(""); const [selected,setSelected]=useState<AdminWalletDetailResponse|null>(null); const [detailLoading,setDetailLoading]=useState(false);
+ const loadOverview=useCallback(async()=>{if(!isAuthenticated)return;setState("loading");setMessage(null);try{setOverview(await getAdminOverview());setState("ready")}catch(e){setState(e instanceof AdminApiError&&e.status===403?"forbidden":"error");setMessage(e instanceof Error?e.message:"Unable to load admin analytics.")}},[isAuthenticated]);
+ const loadUsers=useCallback(async()=>{if(!isAuthenticated)return;setUsersLoading(true);try{const r=await getAdminUsers({search,tier,limit:100});setUsers(r.users);setTotal(r.total)}catch(e){setMessage(e instanceof Error?e.message:"Unable to load wallets.")}finally{setUsersLoading(false)}},[isAuthenticated,search,tier]);
+ useEffect(()=>{if(isAuthenticated)void loadOverview();else{setOverview(null);setState("idle")}},[isAuthenticated,loadOverview]);
+ useEffect(()=>{if(view!=="wallets"||!isAuthenticated)return;const t=setTimeout(()=>void loadUsers(),250);return()=>clearTimeout(t)},[view,isAuthenticated,loadUsers]);
+ const openWallet=async(address:string)=>{setDetailLoading(true);setSelected(null);try{setSelected(await getAdminWallet(address))}catch(e){setMessage(e instanceof Error?e.message:"Unable to load wallet.")}finally{setDetailLoading(false)}};
+ const activeRate=useMemo(()=>!overview||!overview.users.total?0:Math.round(overview.users.active7d/overview.users.total*100),[overview]); const holderRate=useMemo(()=>!overview||!overview.users.total?0:Math.round(overview.genesis.holders/overview.users.total*100),[overview]);
+ if(isRestoring)return <main className={styles.gate}><LoaderCircle className={styles.spin}/><h1>Restoring admin session</h1><p>Checking your existing Unlimited X Labs session.</p></main>;
+ if(!isAuthenticated)return <main className={styles.gate}><div className={styles.gateIcon}><ShieldCheck/></div><span className={styles.eyebrow}>Restricted area</span><h1>Unlimited X Labs Admin</h1><p>Connect and sign in with an authorized admin wallet to continue.</p><ConnectButton.Custom>{({account,chain,mounted,openConnectModal})=>{const connected=mounted&&Boolean(account&&chain);return <button className={styles.primaryButton} disabled={!mounted||isAuthenticating} onClick={()=>{if(!connected)openConnectModal?.();else void authenticate()}}>{isAuthenticating?"Signing in…":connected?"Sign in":"Connect wallet"}</button>}}</ConnectButton.Custom><Link className={styles.backLink} to="/app"><ArrowLeft size={16}/> Back to app</Link></main>;
+ if(state==="forbidden")return <main className={styles.gate}><ShieldCheck/><h1>Admin permission required</h1><p>{message}</p><Link className={styles.primaryLink} to="/app">Return to app</Link></main>;
+ if(state==="loading"&&!overview)return <main className={styles.gate}><LoaderCircle className={styles.spin}/><h1>Loading operations</h1></main>;
+ if(!overview)return <main className={styles.gate}><h1>Admin analytics unavailable</h1><p>{message}</p><button className={styles.primaryButton} onClick={()=>void loadOverview()}>Try again</button></main>;
+ const cards=[{label:"Registered users",value:overview.users.total,detail:`+${overview.users.new7d} in 7 days`,icon:Users},{label:"Active users · 7d",value:overview.users.active7d,detail:`${activeRate}% of registered users`,icon:Activity},{label:"Connected wallets",value:overview.wallets.total,detail:"Non-blocked wallets",icon:WalletCards},{label:"Genesis holders",value:overview.genesis.holders,detail:`${holderRate}% of registered users`,icon:Crown},{label:"Genesis passes",value:overview.genesis.passes,detail:"Synced on BNB Chain",icon:TicketCheck},{label:"New users · 30d",value:overview.users.new30d,detail:`${overview.users.newToday} today`,icon:CircleUserRound}];
+ return <div className={styles.shell}><aside className={styles.sidebar}><Link className={styles.brand} to="/"><strong>Unlimited</strong><span>X Labs</span></Link><div className={styles.sideLabel}>OPERATIONS</div><button className={view==="overview"?styles.sideActive:styles.sideButton} onClick={()=>setView("overview")}><Activity size={18}/> Overview</button><button className={view==="wallets"?styles.sideActive:styles.sideButton} onClick={()=>setView("wallets")}><WalletCards size={18}/> Users & wallets</button><div className={styles.sideSoon}>XP & progression <span>Soon</span></div><div className={styles.sideSoon}>Missions <span>Soon</span></div><div className={styles.sideSoon}>Referrals <span>Soon</span></div><div className={styles.sideSoon}>Season & airdrop <span>Soon</span></div><div className={styles.sideFooter}><ShieldCheck size={17}/>{overview.admin.role.replace("_"," ")}</div></aside>
+ <main className={styles.main}><header className={styles.header}><div><span className={styles.eyebrow}>Admin control center</span><h1>{view==="overview"?"Platform overview":"Users & wallet intelligence"}</h1><p>{view==="overview"?"Live operational view of users, activity and Genesis ownership.":"Inspect registered wallets, Genesis ownership and live BNB Chain balances."}</p></div><div className={styles.headerActions}><div className={styles.walletChip}><BadgeCheck size={16}/>{wallet?.address?short(wallet.address):"Admin"}</div><button className={styles.refreshButton} onClick={()=>view==="overview"?void loadOverview():void loadUsers()}><RefreshCw size={16}/> Refresh</button><Link className={styles.appLink} to="/app">Open app</Link></div></header>
+ {view==="overview"?<><section className={styles.metrics}>{cards.map(({label,value,detail,icon:Icon})=><article className={styles.metricCard} key={label}><div className={styles.metricTop}><span>{label}</span><Icon size={19}/></div><strong>{n(value)}</strong><small>{detail}</small></article>)}</section><section className={styles.grid}><article className={styles.panel}><div className={styles.panelHeading}><div><span className={styles.eyebrow}>Growth</span><h2>User activity</h2></div></div><div className={styles.rows}>{[["New today",overview.users.newToday],["New · 7 days",overview.users.new7d],["New · 30 days",overview.users.new30d],["Active · 7 days",overview.users.active7d],["Active · 30 days",overview.users.active30d]].map(([l,v])=><div key={String(l)}><span>{l}</span><strong>{n(Number(v))}</strong></div>)}</div></article><article className={styles.panel}><div className={styles.panelHeading}><div><span className={styles.eyebrow}>Genesis</span><h2>Tier distribution</h2></div><Crown/></div><div className={styles.tiers}>{overview.genesis.tierDistribution.map(t=><div className={styles.tier} key={t.tier_key}><div><strong>{t.tier_name}</strong><span>{n(t.holders)} holder{t.holders===1?"":"s"}</span></div><b>{n(t.passes)} passes</b></div>)}</div></article></section></>:
+ <section className={styles.walletSection}><div className={styles.toolbar}><div className={styles.searchBox}><Search size={17}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Search wallet or username"/></div><select value={tier} onChange={e=>setTier(e.target.value)}><option value="">All Genesis tiers</option><option value="none">No Genesis</option><option value="genesis">Genesis</option><option value="genesis_plus">Genesis+</option><option value="elite">Elite</option><option value="apex">Apex</option><option value="prime">Prime</option><option value="founder">Founder</option></select><span className={styles.resultCount}>{n(total)} wallets</span></div><div className={styles.tableWrap}><table><thead><tr><th>Wallet</th><th>Status</th><th>Genesis</th><th>Tier</th><th>Last active</th><th></th></tr></thead><tbody>{usersLoading?<tr><td colSpan={6} className={styles.tableEmpty}><LoaderCircle className={styles.spin}/> Loading wallets…</td></tr>:users.length===0?<tr><td colSpan={6} className={styles.tableEmpty}>No wallets match these filters.</td></tr>:users.map(u=><tr key={u.userId}><td><button className={styles.addressButton} onClick={()=>void openWallet(u.wallet.address)}><WalletCards size={16}/><span>{short(u.wallet.address)}</span></button></td><td><span className={styles.statusPill}>{u.status}</span></td><td><strong>{u.genesis.balance}</strong></td><td>{u.genesis.tierName}</td><td>{dt(u.lastActiveAt)}</td><td><button className={styles.viewButton} onClick={()=>void openWallet(u.wallet.address)}>View</button></td></tr>)}</tbody></table></div></section>}
+ <footer className={styles.footer}><span>Generated {dt(overview.generatedAt)}</span><span>On-chain wallet balances are separate from X Labs deposits / TVL.</span></footer></main>
+ {(detailLoading||selected)&&<div className={styles.drawerBackdrop} onClick={()=>!detailLoading&&setSelected(null)}><aside className={styles.drawer} onClick={e=>e.stopPropagation()}>{detailLoading?<div className={styles.drawerLoading}><LoaderCircle className={styles.spin}/><b>Reading BNB Chain…</b></div>:selected&&<><div className={styles.drawerHead}><div><span className={styles.eyebrow}>Wallet intelligence</span><h2>{short(selected.wallet.address)}</h2></div><button onClick={()=>setSelected(null)}><X/></button></div><div className={styles.fullAddress}><code>{selected.wallet.address}</code><button onClick={()=>void navigator.clipboard.writeText(selected.wallet.address)}><Copy size={15}/></button><a href={`https://bscscan.com/address/${selected.wallet.address}`} target="_blank" rel="noreferrer"><ExternalLink size={15}/></a></div><div className={styles.balanceGrid}><div><span>BNB</span><strong>{bal(selected.balances.BNB.formatted)}</strong></div><div><span>USDT</span><strong>{bal(selected.balances.USDT.formatted,2)}</strong></div><div><span>BTCB</span><strong>{bal(selected.balances.BTCB.formatted,8)}</strong></div></div><div className={styles.detailList}><div><span>Account status</span><b>{selected.user.status}</b></div><div><span>Genesis passes</span><b>{selected.genesis.balance}</b></div><div><span>Genesis tier</span><b>{selected.genesis.tierName}</b></div><div><span>Registered</span><b>{dt(selected.user.createdAt)}</b></div><div><span>Last active</span><b>{dt(selected.user.lastActiveAt)}</b></div><div><span>Wallet connected</span><b>{dt(selected.wallet.connectedAt)}</b></div></div><div className={styles.infoNote}>These are live public wallet balances on BNB Chain. They are not the user’s Earn/Stake position or X Labs TVL.</div></>}</aside></div>}</div>;
 }
