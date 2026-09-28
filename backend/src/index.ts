@@ -155,6 +155,57 @@ interface GenesisOwnershipRow {
   updated_at: number;
 }
 
+interface XpBalanceRow {
+  user_id: string;
+  lifetime_xp: number;
+  updated_at: number;
+}
+
+type XpSourceType =
+  | "mission"
+  | "referral"
+  | "daily"
+  | "genesis"
+  | "admin"
+  | "campaign"
+  | "system";
+
+interface XpTransactionRow {
+  id: string;
+  user_id: string;
+  season_id: string | null;
+  source_type: XpSourceType;
+  source_id: string | null;
+  base_xp: number;
+  boost_xp: number;
+  total_xp: number;
+  multiplier_bps: number;
+  reason: string | null;
+  status: "active" | "reversed";
+  idempotency_key: string;
+  created_at: number;
+  reversed_at: number | null;
+}
+
+type XpBoostType = "xp" | "referral" | "none";
+
+export interface AwardXpInput {
+  userId: string;
+  sourceType: XpSourceType;
+  sourceId?: string | null;
+  seasonId?: string | null;
+  baseXp: number;
+  reason?: string | null;
+  idempotencyKey: string;
+  boostType?: XpBoostType;
+}
+
+export interface AwardXpResult {
+  created: boolean;
+  transaction: XpTransactionRow;
+  lifetimeXp: number;
+}
+
 interface AuthenticatedContext {
   session: AuthSessionRow;
   user: UserRow;
@@ -599,6 +650,146 @@ async function getGenesisOwnership(
      WHERE user_id = ?
      LIMIT 1`,
   ).bind(userId).first<GenesisOwnershipRow>();
+}
+
+async function getXpBalance(
+  db: D1Database,
+  userId: string,
+): Promise<XpBalanceRow | null> {
+  return db.prepare(
+    `SELECT user_id, lifetime_xp, updated_at
+     FROM xp_balances
+     WHERE user_id = ?
+     LIMIT 1`,
+  ).bind(userId).first<XpBalanceRow>();
+}
+
+async function getXpTransactionByIdempotencyKey(
+  db: D1Database,
+  idempotencyKey: string,
+): Promise<XpTransactionRow | null> {
+  return db.prepare(
+    `SELECT id, user_id, season_id, source_type, source_id,
+            base_xp, boost_xp, total_xp, multiplier_bps, reason,
+            status, idempotency_key, created_at, reversed_at
+     FROM xp_transactions
+     WHERE idempotency_key = ?
+     LIMIT 1`,
+  ).bind(idempotencyKey).first<XpTransactionRow>();
+}
+
+function serializeXpTransaction(row: XpTransactionRow) {
+  return {
+    id: row.id,
+    seasonId: row.season_id,
+    sourceType: row.source_type,
+    sourceId: row.source_id,
+    baseXp: row.base_xp,
+    boostXp: row.boost_xp,
+    totalXp: row.total_xp,
+    multiplierBps: row.multiplier_bps,
+    reason: row.reason,
+    status: row.status,
+    createdAt: row.created_at,
+    reversedAt: row.reversed_at,
+  };
+}
+
+export async function awardXp(
+  db: D1Database,
+  input: AwardXpInput,
+): Promise<AwardXpResult> {
+  if (!Number.isSafeInteger(input.baseXp) || input.baseXp < 0) {
+    throw new Error("XP base amount must be a non-negative safe integer.");
+  }
+
+  const idempotencyKey = input.idempotencyKey.trim();
+  if (!idempotencyKey) {
+    throw new Error("XP idempotency key is required.");
+  }
+
+  const existing = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
+  if (existing) {
+    if (existing.user_id !== input.userId) {
+      throw new Error("XP idempotency key belongs to another user.");
+    }
+    const balance = await getXpBalance(db, input.userId);
+    return {
+      created: false,
+      transaction: existing,
+      lifetimeXp: balance?.lifetime_xp ?? 0,
+    };
+  }
+
+  const ownership = await getGenesisOwnership(db, input.userId);
+  const boostType = input.boostType ?? "xp";
+  const boostPercent = boostType === "referral"
+    ? ownership?.referral_boost_percent ?? 0
+    : boostType === "xp"
+      ? ownership?.xp_boost_percent ?? 0
+      : 0;
+
+  const boostXp = Math.floor((input.baseXp * boostPercent) / 100);
+  const totalXp = input.baseXp + boostXp;
+  const multiplierBps = 10000 + boostPercent * 100;
+  const now = Date.now();
+  const transactionId = crypto.randomUUID();
+
+  try {
+    await db.batch([
+      db.prepare(
+        `INSERT INTO xp_transactions (
+           id, user_id, season_id, source_type, source_id,
+           base_xp, boost_xp, total_xp, multiplier_bps, reason,
+           status, idempotency_key, created_at, reversed_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL)`,
+      ).bind(
+        transactionId,
+        input.userId,
+        input.seasonId ?? null,
+        input.sourceType,
+        input.sourceId ?? null,
+        input.baseXp,
+        boostXp,
+        totalXp,
+        multiplierBps,
+        input.reason ?? null,
+        idempotencyKey,
+        now,
+      ),
+      db.prepare(
+        `INSERT INTO xp_balances (user_id, lifetime_xp, updated_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(user_id) DO UPDATE SET
+           lifetime_xp = xp_balances.lifetime_xp + excluded.lifetime_xp,
+           updated_at = excluded.updated_at`,
+      ).bind(input.userId, totalXp, now),
+    ]);
+  } catch (error) {
+    const racedTransaction = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
+    if (!racedTransaction) throw error;
+    if (racedTransaction.user_id !== input.userId) {
+      throw new Error("XP idempotency key belongs to another user.");
+    }
+    const racedBalance = await getXpBalance(db, input.userId);
+    return {
+      created: false,
+      transaction: racedTransaction,
+      lifetimeXp: racedBalance?.lifetime_xp ?? 0,
+    };
+  }
+
+  const transaction = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
+  const balance = await getXpBalance(db, input.userId);
+  if (!transaction || !balance) {
+    throw new Error("XP award was written but could not be read back.");
+  }
+
+  return {
+    created: true,
+    transaction,
+    lifetimeXp: balance.lifetime_xp,
+  };
 }
 
 export default {
@@ -2250,6 +2441,163 @@ export default {
       } catch (error) {
         console.error("Admin wallet detail failed:", error);
         return jsonResponse(request, { success: false, error: "Unable to load wallet intelligence." }, 502);
+      }
+    }
+
+    // =========================================================
+    // ADMIN XP CONTROL
+    // Super Admin only. Manual XP awards always pass through the
+    // central XP engine so Genesis boosts and idempotency apply.
+    // =========================================================
+
+    if (request.method === "POST" && url.pathname === "/admin/xp/award") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") {
+          return jsonResponse(
+            request,
+            { success: false, authenticated: true, authorized: false },
+            403,
+          );
+        }
+
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400);
+        }
+
+        if (typeof body !== "object" || body === null) {
+          return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        }
+
+        const payload = body as Record<string, unknown>;
+        const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
+        const baseXp = payload.baseXp;
+        const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
+        const idempotencyKey =
+          typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : "";
+
+        if (!userId) {
+          return jsonResponse(request, { success: false, error: "User ID is required." }, 400);
+        }
+        if (!Number.isSafeInteger(baseXp) || (baseXp as number) <= 0) {
+          return jsonResponse(
+            request,
+            { success: false, error: "Base XP must be a positive safe integer." },
+            400,
+          );
+        }
+        if (!reason) {
+          return jsonResponse(request, { success: false, error: "Award reason is required." }, 400);
+        }
+        if (!idempotencyKey) {
+          return jsonResponse(
+            request,
+            { success: false, error: "Idempotency key is required." },
+            400,
+          );
+        }
+
+        const targetUser = await env.DB.prepare(
+          `SELECT id, status FROM users WHERE id = ? LIMIT 1`,
+        ).bind(userId).first<{ id: string; status: string }>();
+
+        if (!targetUser) {
+          return jsonResponse(request, { success: false, error: "Target user not found." }, 404);
+        }
+        if (targetUser.status !== "active") {
+          return jsonResponse(
+            request,
+            { success: false, error: "XP cannot be awarded to an inactive user." },
+            409,
+          );
+        }
+
+        const result = await awardXp(env.DB, {
+          userId,
+          sourceType: "admin",
+          sourceId: auth.user.id,
+          baseXp: baseXp as number,
+          reason,
+          idempotencyKey,
+          boostType: "xp",
+        });
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          authorized: true,
+          admin: { role: admin.role },
+          award: {
+            created: result.created,
+            lifetimeXp: result.lifetimeXp,
+            transaction: serializeXpTransaction(result.transaction),
+          },
+        }, result.created ? 201 : 200);
+      } catch (error) {
+        console.error("Admin XP award failed:", error);
+        return jsonResponse(
+          request,
+          { success: false, error: "Unable to award XP." },
+          500,
+        );
+      }
+    }
+
+    // =========================================================
+    // XP CORE
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/xp/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const [balance, ownership, recentResult] = await Promise.all([
+          getXpBalance(env.DB, auth.user.id),
+          getGenesisOwnership(env.DB, auth.user.id),
+          env.DB.prepare(
+            `SELECT id, user_id, season_id, source_type, source_id,
+                    base_xp, boost_xp, total_xp, multiplier_bps, reason,
+                    status, idempotency_key, created_at, reversed_at
+             FROM xp_transactions
+             WHERE user_id = ?
+             ORDER BY created_at DESC
+             LIMIT 25`,
+          ).bind(auth.user.id).all<XpTransactionRow>(),
+        ]);
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          xp: {
+            lifetimeXp: balance?.lifetime_xp ?? 0,
+            updatedAt: balance?.updated_at ?? null,
+            currentBoost: {
+              percent: ownership?.xp_boost_percent ?? 0,
+              multiplierBps: 10000 + (ownership?.xp_boost_percent ?? 0) * 100,
+              genesisTierKey: ownership?.tier_key ?? "none",
+              genesisTierName: ownership?.tier_name ?? "None",
+            },
+            recentTransactions: (recentResult.results ?? []).map(serializeXpTransaction),
+          },
+        });
+      } catch (error) {
+        console.error("XP profile read failed:", error);
+        return jsonResponse(
+          request,
+          { success: false, error: "Unable to load XP profile." },
+          500,
+        );
       }
     }
 
