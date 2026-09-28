@@ -1,8 +1,14 @@
 import {
 
+  createPublicClient,
+
   getAddress,
 
+  http,
+
   isAddress,
+
+  parseAbi,
 
   verifyMessage,
 
@@ -16,6 +22,8 @@ export interface Env {
 
   DB: D1Database;
 
+  BNB_RPC_URL: string;
+
 }
 
 
@@ -25,6 +33,14 @@ const AUTH_CHAIN_ID = 56;
 const AUTH_CHALLENGE_TTL_SECONDS = 5 * 60;
 
 const AUTH_SESSION_TTL_SECONDS = 7 * 24 * 60 * 60;
+
+const GENESIS_CONTRACT_ADDRESS =
+  "0x3d71D114B58bd47477BDf5DEF6620a5b0F23842E" as const;
+const GENESIS_PASS_ID = 1n;
+const GENESIS_SYNC_COOLDOWN_MS = 60 * 1000;
+const GENESIS_ABI = parseAbi([
+  "function balanceOf(address account, uint256 id) view returns (uint256)",
+]);
 
 
 
@@ -119,6 +135,51 @@ interface AuthSessionRow {
   expires_at: number;
   last_seen_at: number;
   revoked_at: number | null;
+}
+
+interface GenesisOwnershipRow {
+  user_id: string;
+  wallet_address: string;
+  chain_id: number;
+  contract_address: string;
+  token_id: string;
+  balance: number;
+  tier_key: string;
+  tier_name: string;
+  xp_boost_percent: number;
+  referral_boost_percent: number;
+  synced_at: number;
+  created_at: number;
+  updated_at: number;
+}
+
+interface AuthenticatedContext {
+  session: AuthSessionRow;
+  user: UserRow;
+  wallet: WalletRow;
+}
+
+interface AdminUserRow {
+  user_id: string;
+  role: "admin" | "super_admin";
+  status: "active" | "disabled";
+  created_at: number;
+  updated_at: number;
+}
+
+interface CountRow {
+  count: number;
+}
+
+interface SumRow {
+  total: number | null;
+}
+
+interface TierDistributionRow {
+  tier_key: string;
+  tier_name: string;
+  holders: number;
+  passes: number;
 }
 
 const SESSION_COOKIE_NAME = "__Host-unxlabs_session";
@@ -424,6 +485,97 @@ async function createUniqueReferralCode(
 }
 
 
+
+function getGenesisTier(balance: number) {
+  if (balance >= 50) return { key: "founder", name: "Founder", xpBoost: 75, referralBoost: 35 };
+  if (balance >= 25) return { key: "prime", name: "Prime", xpBoost: 55, referralBoost: 25 };
+  if (balance >= 10) return { key: "apex", name: "Apex", xpBoost: 40, referralBoost: 20 };
+  if (balance >= 5) return { key: "elite", name: "Elite", xpBoost: 30, referralBoost: 15 };
+  if (balance >= 3) return { key: "genesis_plus", name: "Genesis+", xpBoost: 20, referralBoost: 10 };
+  if (balance >= 1) return { key: "genesis", name: "Genesis", xpBoost: 10, referralBoost: 5 };
+  return { key: "none", name: "None", xpBoost: 0, referralBoost: 0 };
+}
+
+function serializeGenesisOwnership(row: GenesisOwnershipRow) {
+  return {
+    walletAddress: getAddress(row.wallet_address),
+    chainId: row.chain_id,
+    contractAddress: getAddress(row.contract_address),
+    tokenId: row.token_id,
+    balance: row.balance,
+    tier: { key: row.tier_key, name: row.tier_name },
+    xpBoostPercent: row.xp_boost_percent,
+    referralBoostPercent: row.referral_boost_percent,
+    syncedAt: row.synced_at,
+  };
+}
+
+async function getAuthenticatedContext(
+  request: Request,
+  env: Env,
+): Promise<AuthenticatedContext | null> {
+  const sessionToken = getCookieValue(request, SESSION_COOKIE_NAME);
+  if (!sessionToken) return null;
+
+  const tokenHash = await sha256(sessionToken);
+  const now = Date.now();
+  const session = await env.DB.prepare(
+    `SELECT id, user_id, token_hash, status, created_at,
+            expires_at, last_seen_at, revoked_at
+     FROM auth_sessions
+     WHERE token_hash = ?
+     LIMIT 1`,
+  ).bind(tokenHash).first<AuthSessionRow>();
+
+  if (!session || session.status !== "active" || session.expires_at <= now) return null;
+
+  const user = await env.DB.prepare(
+    `SELECT id, username, referral_code, referred_by_user_id,
+            country, status, created_at, last_active_at
+     FROM users
+     WHERE id = ?
+     LIMIT 1`,
+  ).bind(session.user_id).first<UserRow>();
+  if (!user || user.status !== "active") return null;
+
+  const wallet = await env.DB.prepare(
+    `SELECT id, user_id, address, chain_id, is_primary, status,
+            connected_at, last_seen_at
+     FROM wallets
+     WHERE user_id = ? AND is_primary = 1
+     ORDER BY connected_at ASC
+     LIMIT 1`,
+  ).bind(user.id).first<WalletRow>();
+
+  if (!wallet || wallet.status === "blocked" || wallet.chain_id !== AUTH_CHAIN_ID) return null;
+  return { session, user, wallet };
+}
+
+async function getActiveAdmin(
+  db: D1Database,
+  userId: string,
+): Promise<AdminUserRow | null> {
+  return db.prepare(
+    `SELECT user_id, role, status, created_at, updated_at
+     FROM admin_users
+     WHERE user_id = ? AND status = 'active'
+     LIMIT 1`,
+  ).bind(userId).first<AdminUserRow>();
+}
+
+async function getGenesisOwnership(
+  db: D1Database,
+  userId: string,
+): Promise<GenesisOwnershipRow | null> {
+  return db.prepare(
+    `SELECT user_id, wallet_address, chain_id, contract_address, token_id,
+            balance, tier_key, tier_name, xp_boost_percent,
+            referral_boost_percent, synced_at, created_at, updated_at
+     FROM genesis_ownership
+     WHERE user_id = ?
+     LIMIT 1`,
+  ).bind(userId).first<GenesisOwnershipRow>();
+}
 
 export default {
 
@@ -1877,6 +2029,214 @@ export default {
           request,
           { success: false, error: "Unable to restore authentication session." },
           500,
+        );
+      }
+    }
+
+    // =========================================================
+    // ADMIN ANALYTICS
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/admin/overview") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin) {
+          return jsonResponse(
+            request,
+            { success: false, authenticated: true, authorized: false },
+            403,
+          );
+        }
+
+        const now = Date.now();
+        const startOfTodayUtc = new Date(now);
+        startOfTodayUtc.setUTCHours(0, 0, 0, 0);
+        const todayCutoff = startOfTodayUtc.getTime();
+        const sevenDaysAgo = now - 7 * 24 * 60 * 60 * 1000;
+        const thirtyDaysAgo = now - 30 * 24 * 60 * 60 * 1000;
+
+        const [
+          totalUsers,
+          newUsersToday,
+          newUsers7d,
+          newUsers30d,
+          activeUsers7d,
+          activeUsers30d,
+          totalWallets,
+          genesisHolders,
+          genesisPasses,
+          tierDistributionResult,
+        ] = await Promise.all([
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users`).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE created_at >= ?`)
+            .bind(todayCutoff).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE created_at >= ?`)
+            .bind(sevenDaysAgo).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE created_at >= ?`)
+            .bind(thirtyDaysAgo).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE last_active_at >= ?`)
+            .bind(sevenDaysAgo).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM users WHERE last_active_at >= ?`)
+            .bind(thirtyDaysAgo).first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM wallets WHERE status != 'blocked'`)
+            .first<CountRow>(),
+          env.DB.prepare(`SELECT COUNT(*) AS count FROM genesis_ownership WHERE balance > 0`)
+            .first<CountRow>(),
+          env.DB.prepare(`SELECT COALESCE(SUM(balance), 0) AS total FROM genesis_ownership WHERE balance > 0`)
+            .first<SumRow>(),
+          env.DB.prepare(
+            `SELECT tier_key, tier_name, COUNT(*) AS holders, COALESCE(SUM(balance), 0) AS passes
+             FROM genesis_ownership
+             WHERE balance > 0
+             GROUP BY tier_key, tier_name
+             ORDER BY MIN(balance) ASC`,
+          ).all<TierDistributionRow>(),
+        ]);
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          authorized: true,
+          admin: {
+            role: admin.role,
+          },
+          generatedAt: now,
+          periods: {
+            todayTimezone: "UTC",
+            sevenDays: "rolling",
+            thirtyDays: "rolling",
+          },
+          users: {
+            total: totalUsers?.count ?? 0,
+            newToday: newUsersToday?.count ?? 0,
+            new7d: newUsers7d?.count ?? 0,
+            new30d: newUsers30d?.count ?? 0,
+            active7d: activeUsers7d?.count ?? 0,
+            active30d: activeUsers30d?.count ?? 0,
+          },
+          wallets: {
+            total: totalWallets?.count ?? 0,
+          },
+          genesis: {
+            holders: genesisHolders?.count ?? 0,
+            passes: genesisPasses?.total ?? 0,
+            tierDistribution: tierDistributionResult.results ?? [],
+          },
+        });
+      } catch (error) {
+        console.error("Admin overview failed:", error);
+        return jsonResponse(
+          request,
+          { success: false, error: "Unable to load admin overview." },
+          500,
+        );
+      }
+    }
+
+    // =========================================================
+    // GENESIS OWNERSHIP
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/genesis/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const ownership = await getGenesisOwnership(env.DB, auth.user.id);
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          genesis: ownership ? serializeGenesisOwnership(ownership) : null,
+        });
+      } catch (error) {
+        console.error("Genesis ownership read failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to read Genesis ownership." }, 500);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/genesis/sync") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const now = Date.now();
+        const existing = await getGenesisOwnership(env.DB, auth.user.id);
+        if (existing && now - existing.synced_at < GENESIS_SYNC_COOLDOWN_MS) {
+          return jsonResponse(request, {
+            success: true,
+            authenticated: true,
+            cached: true,
+            genesis: serializeGenesisOwnership(existing),
+          });
+        }
+
+        const client = createPublicClient({ transport: http(env.BNB_RPC_URL) });
+        const walletAddress = getAddress(auth.wallet.address);
+        const onchainBalance = await client.readContract({
+          address: GENESIS_CONTRACT_ADDRESS,
+          abi: GENESIS_ABI,
+          functionName: "balanceOf",
+          args: [walletAddress, GENESIS_PASS_ID],
+        });
+
+        const balance = Number(onchainBalance);
+        if (!Number.isSafeInteger(balance) || balance < 0) {
+          throw new Error("Invalid Genesis balance returned by RPC.");
+        }
+
+        const tier = getGenesisTier(balance);
+        const createdAt = existing?.created_at ?? now;
+        const normalizedWallet = walletAddress.toLowerCase();
+        const normalizedContract = GENESIS_CONTRACT_ADDRESS.toLowerCase();
+
+        await env.DB.prepare(
+          `INSERT INTO genesis_ownership (
+             user_id, wallet_address, chain_id, contract_address, token_id,
+             balance, tier_key, tier_name, xp_boost_percent, referral_boost_percent,
+             synced_at, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+             wallet_address = excluded.wallet_address,
+             chain_id = excluded.chain_id,
+             contract_address = excluded.contract_address,
+             token_id = excluded.token_id,
+             balance = excluded.balance,
+             tier_key = excluded.tier_key,
+             tier_name = excluded.tier_name,
+             xp_boost_percent = excluded.xp_boost_percent,
+             referral_boost_percent = excluded.referral_boost_percent,
+             synced_at = excluded.synced_at,
+             updated_at = excluded.updated_at`,
+        ).bind(
+          auth.user.id, normalizedWallet, AUTH_CHAIN_ID, normalizedContract,
+          GENESIS_PASS_ID.toString(), balance, tier.key, tier.name, tier.xpBoost,
+          tier.referralBoost, now, createdAt, now,
+        ).run();
+
+        const ownership = await getGenesisOwnership(env.DB, auth.user.id);
+        if (!ownership) throw new Error("Genesis ownership snapshot was not saved.");
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          cached: false,
+          genesis: serializeGenesisOwnership(ownership),
+        });
+      } catch (error) {
+        console.error("Genesis ownership sync failed:", error);
+        return jsonResponse(
+          request,
+          { success: false, error: "Unable to sync Genesis ownership right now." },
+          502,
         );
       }
     }

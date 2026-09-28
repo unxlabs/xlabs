@@ -13,6 +13,7 @@ const Rewards = lazy(() => import("@/features/app/pages/Rewards"));
 const History = lazy(() => import("@/features/app/pages/History"));
 const Ecosystem = lazy(() => import("@/features/app/pages/Ecosystem"));
 const Learn = lazy(() => import("@/features/app/pages/Learn"));
+const AdminDashboard = lazy(() => import("@/features/admin/AdminDashboard"));
 
 function Lazy({ children }: { children: React.ReactNode }) {
   return <Suspense fallback={<PageLoader />}>{children}</Suspense>;
@@ -22,6 +23,15 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Landing />} />
+
+      <Route
+        path="/admin"
+        element={
+          <Lazy>
+            <AdminDashboard />
+          </Lazy>
+        }
+      />
 
       <Route element={<AppShell />}>
         <Route
