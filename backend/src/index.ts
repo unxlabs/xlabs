@@ -204,6 +204,31 @@ export interface AwardXpResult {
   created: boolean;
   transaction: XpTransactionRow;
   lifetimeXp: number;
+  seasonXp: number | null;
+}
+
+interface SeasonRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  status: "draft" | "active" | "ended" | "archived";
+  is_current: number;
+  starts_at: number | null;
+  ends_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface SeasonParticipantRow {
+  id: string;
+  season_id: string;
+  user_id: string;
+  status: "active" | "completed" | "disqualified";
+  season_xp: number;
+  joined_at: number;
+  last_active_at: number;
+  updated_at: number;
 }
 
 interface AuthenticatedContext {
@@ -695,6 +720,51 @@ function serializeXpTransaction(row: XpTransactionRow) {
   };
 }
 
+async function getSeason(db: D1Database, seasonId: string): Promise<SeasonRow | null> {
+  return db.prepare(
+    `SELECT id, slug, name, description, status, is_current, starts_at, ends_at, created_at, updated_at
+     FROM seasons WHERE id = ? LIMIT 1`,
+  ).bind(seasonId).first<SeasonRow>();
+}
+
+async function getCurrentSeason(db: D1Database): Promise<SeasonRow | null> {
+  return db.prepare(
+    `SELECT id, slug, name, description, status, is_current, starts_at, ends_at, created_at, updated_at
+     FROM seasons WHERE is_current = 1 LIMIT 1`,
+  ).first<SeasonRow>();
+}
+
+async function getSeasonParticipant(
+  db: D1Database, seasonId: string, userId: string,
+): Promise<SeasonParticipantRow | null> {
+  return db.prepare(
+    `SELECT id, season_id, user_id, status, season_xp, joined_at, last_active_at, updated_at
+     FROM season_participants WHERE season_id = ? AND user_id = ? LIMIT 1`,
+  ).bind(seasonId, userId).first<SeasonParticipantRow>();
+}
+
+function serializeSeason(row: SeasonRow) {
+  return {
+    id: row.id, slug: row.slug, name: row.name, description: row.description,
+    status: row.status, isCurrent: row.is_current === 1, startsAt: row.starts_at,
+    endsAt: row.ends_at, createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+function serializeSeasonParticipant(row: SeasonParticipantRow) {
+  return {
+    id: row.id, seasonId: row.season_id, userId: row.user_id, status: row.status,
+    seasonXp: row.season_xp, joinedAt: row.joined_at, lastActiveAt: row.last_active_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function isSeasonOpen(season: SeasonRow, now: number): boolean {
+  return season.status === "active" && season.is_current === 1 &&
+    (season.starts_at === null || season.starts_at <= now) &&
+    (season.ends_at === null || season.ends_at > now);
+}
+
 export async function awardXp(
   db: D1Database,
   input: AwardXpInput,
@@ -704,92 +774,77 @@ export async function awardXp(
   }
 
   const idempotencyKey = input.idempotencyKey.trim();
-  if (!idempotencyKey) {
-    throw new Error("XP idempotency key is required.");
-  }
+  if (!idempotencyKey) throw new Error("XP idempotency key is required.");
 
   const existing = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
   if (existing) {
-    if (existing.user_id !== input.userId) {
-      throw new Error("XP idempotency key belongs to another user.");
-    }
-    const balance = await getXpBalance(db, input.userId);
-    return {
-      created: false,
-      transaction: existing,
-      lifetimeXp: balance?.lifetime_xp ?? 0,
-    };
+    if (existing.user_id !== input.userId) throw new Error("XP idempotency key belongs to another user.");
+    const [balance, participant] = await Promise.all([
+      getXpBalance(db, input.userId),
+      existing.season_id ? getSeasonParticipant(db, existing.season_id, input.userId) : Promise.resolve(null),
+    ]);
+    return { created: false, transaction: existing, lifetimeXp: balance?.lifetime_xp ?? 0, seasonXp: participant?.season_xp ?? null };
+  }
+
+  const now = Date.now();
+  const seasonId = input.seasonId?.trim() || null;
+  let participant: SeasonParticipantRow | null = null;
+  if (seasonId) {
+    const season = await getSeason(db, seasonId);
+    if (!season) throw new Error("Season not found.");
+    if (!isSeasonOpen(season, now)) throw new Error("Season is not currently active.");
+    participant = await getSeasonParticipant(db, seasonId, input.userId);
+    if (!participant) throw new Error("User has not joined this season.");
+    if (participant.status !== "active") throw new Error("Season participant is not active.");
   }
 
   const ownership = await getGenesisOwnership(db, input.userId);
   const boostType = input.boostType ?? "xp";
   const boostPercent = boostType === "referral"
     ? ownership?.referral_boost_percent ?? 0
-    : boostType === "xp"
-      ? ownership?.xp_boost_percent ?? 0
-      : 0;
-
+    : boostType === "xp" ? ownership?.xp_boost_percent ?? 0 : 0;
   const boostXp = Math.floor((input.baseXp * boostPercent) / 100);
   const totalXp = input.baseXp + boostXp;
   const multiplierBps = 10000 + boostPercent * 100;
-  const now = Date.now();
   const transactionId = crypto.randomUUID();
 
+  const statements = [
+    db.prepare(
+      `INSERT INTO xp_transactions (id, user_id, season_id, source_type, source_id, base_xp, boost_xp, total_xp, multiplier_bps, reason, status, idempotency_key, created_at, reversed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL)`,
+    ).bind(transactionId, input.userId, seasonId, input.sourceType, input.sourceId ?? null, input.baseXp, boostXp, totalXp, multiplierBps, input.reason ?? null, idempotencyKey, now),
+    db.prepare(
+      `INSERT INTO xp_balances (user_id, lifetime_xp, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(user_id) DO UPDATE SET lifetime_xp = xp_balances.lifetime_xp + excluded.lifetime_xp, updated_at = excluded.updated_at`,
+    ).bind(input.userId, totalXp, now),
+  ];
+  if (seasonId) {
+    statements.push(db.prepare(
+      `UPDATE season_participants SET season_xp = season_xp + ?, last_active_at = ?, updated_at = ?
+       WHERE season_id = ? AND user_id = ? AND status = 'active'`,
+    ).bind(totalXp, now, now, seasonId, input.userId));
+  }
+
   try {
-    await db.batch([
-      db.prepare(
-        `INSERT INTO xp_transactions (
-           id, user_id, season_id, source_type, source_id,
-           base_xp, boost_xp, total_xp, multiplier_bps, reason,
-           status, idempotency_key, created_at, reversed_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, NULL)`,
-      ).bind(
-        transactionId,
-        input.userId,
-        input.seasonId ?? null,
-        input.sourceType,
-        input.sourceId ?? null,
-        input.baseXp,
-        boostXp,
-        totalXp,
-        multiplierBps,
-        input.reason ?? null,
-        idempotencyKey,
-        now,
-      ),
-      db.prepare(
-        `INSERT INTO xp_balances (user_id, lifetime_xp, updated_at)
-         VALUES (?, ?, ?)
-         ON CONFLICT(user_id) DO UPDATE SET
-           lifetime_xp = xp_balances.lifetime_xp + excluded.lifetime_xp,
-           updated_at = excluded.updated_at`,
-      ).bind(input.userId, totalXp, now),
-    ]);
+    await db.batch(statements);
   } catch (error) {
     const racedTransaction = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
     if (!racedTransaction) throw error;
-    if (racedTransaction.user_id !== input.userId) {
-      throw new Error("XP idempotency key belongs to another user.");
-    }
-    const racedBalance = await getXpBalance(db, input.userId);
-    return {
-      created: false,
-      transaction: racedTransaction,
-      lifetimeXp: racedBalance?.lifetime_xp ?? 0,
-    };
+    if (racedTransaction.user_id !== input.userId) throw new Error("XP idempotency key belongs to another user.");
+    const [racedBalance, racedParticipant] = await Promise.all([
+      getXpBalance(db, input.userId),
+      racedTransaction.season_id ? getSeasonParticipant(db, racedTransaction.season_id, input.userId) : Promise.resolve(null),
+    ]);
+    return { created: false, transaction: racedTransaction, lifetimeXp: racedBalance?.lifetime_xp ?? 0, seasonXp: racedParticipant?.season_xp ?? null };
   }
 
-  const transaction = await getXpTransactionByIdempotencyKey(db, idempotencyKey);
-  const balance = await getXpBalance(db, input.userId);
-  if (!transaction || !balance) {
-    throw new Error("XP award was written but could not be read back.");
-  }
-
-  return {
-    created: true,
-    transaction,
-    lifetimeXp: balance.lifetime_xp,
-  };
+  const [transaction, balance, updatedParticipant] = await Promise.all([
+    getXpTransactionByIdempotencyKey(db, idempotencyKey),
+    getXpBalance(db, input.userId),
+    seasonId ? getSeasonParticipant(db, seasonId, input.userId) : Promise.resolve(null),
+  ]);
+  if (!transaction || !balance) throw new Error("XP award was written but could not be read back.");
+  return { created: true, transaction, lifetimeXp: balance.lifetime_xp, seasonXp: updatedParticipant?.season_xp ?? null };
 }
 
 export default {
@@ -2483,6 +2538,7 @@ export default {
         const reason = typeof payload.reason === "string" ? payload.reason.trim() : "";
         const idempotencyKey =
           typeof payload.idempotencyKey === "string" ? payload.idempotencyKey.trim() : "";
+        const seasonId = typeof payload.seasonId === "string" ? payload.seasonId.trim() || null : null;
 
         if (!userId) {
           return jsonResponse(request, { success: false, error: "User ID is required." }, 400);
@@ -2527,6 +2583,7 @@ export default {
           baseXp: baseXp as number,
           reason,
           idempotencyKey,
+          seasonId,
           boostType: "xp",
         });
 
@@ -2538,6 +2595,7 @@ export default {
           award: {
             created: result.created,
             lifetimeXp: result.lifetimeXp,
+            seasonXp: result.seasonXp,
             transaction: serializeXpTransaction(result.transaction),
           },
         }, result.created ? 201 : 200);
@@ -2548,6 +2606,121 @@ export default {
           { success: false, error: "Unable to award XP." },
           500,
         );
+      }
+    }
+
+    // =========================================================
+    // SEASON CORE
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/season/current") {
+      try {
+        const season = await getCurrentSeason(env.DB);
+        return jsonResponse(request, { success: true, season: season ? serializeSeason(season) : null });
+      } catch (error) {
+        console.error("Current season read failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load current season." }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/season/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const season = await getCurrentSeason(env.DB);
+        if (!season) return jsonResponse(request, { success: true, authenticated: true, season: null, participation: null });
+        const participant = await getSeasonParticipant(env.DB, season.id, auth.user.id);
+        return jsonResponse(request, { success: true, authenticated: true, season: serializeSeason(season), participation: participant ? serializeSeasonParticipant(participant) : null });
+      } catch (error) {
+        console.error("Season profile read failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load season profile." }, 500);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/season/join") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const season = await getCurrentSeason(env.DB);
+        const now = Date.now();
+        if (!season) return jsonResponse(request, { success: false, error: "No current season is available." }, 404);
+        if (!isSeasonOpen(season, now)) return jsonResponse(request, { success: false, error: "The current season is not open for participation." }, 409);
+        const existing = await getSeasonParticipant(env.DB, season.id, auth.user.id);
+        if (existing) {
+          if (existing.status === "disqualified") return jsonResponse(request, { success: false, error: "This account is disqualified from the current season." }, 403);
+          return jsonResponse(request, { success: true, authenticated: true, created: false, season: serializeSeason(season), participation: serializeSeasonParticipant(existing) });
+        }
+        const participantId = crypto.randomUUID();
+        const insertResult = await env.DB.prepare(
+          `INSERT INTO season_participants (id, season_id, user_id, status, season_xp, joined_at, last_active_at, updated_at)
+           VALUES (?, ?, ?, 'active', 0, ?, ?, ?)
+           ON CONFLICT(season_id, user_id) DO NOTHING`,
+        ).bind(participantId, season.id, auth.user.id, now, now, now).run();
+        const participant = await getSeasonParticipant(env.DB, season.id, auth.user.id);
+        if (!participant) throw new Error("Season participation was written but could not be read back.");
+        if (participant.status === "disqualified") return jsonResponse(request, { success: false, error: "This account is disqualified from the current season." }, 403);
+        const created = insertResult.meta.changes > 0;
+        return jsonResponse(request, { success: true, authenticated: true, created, season: serializeSeason(season), participation: serializeSeasonParticipant(participant) }, created ? 201 : 200);
+      } catch (error) {
+        console.error("Season join failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to join the current season." }, 500);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/seasons") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") return jsonResponse(request, { success: false, authenticated: true, authorized: false }, 403);
+        let body: unknown;
+        try { body = await request.json(); } catch { return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400); }
+        if (typeof body !== "object" || body === null) return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        const payload = body as Record<string, unknown>;
+        const slug = typeof payload.slug === "string" ? payload.slug.trim().toLowerCase() : "";
+        const name = typeof payload.name === "string" ? payload.name.trim() : "";
+        const description = typeof payload.description === "string" ? payload.description.trim() || null : null;
+        const startsAt = typeof payload.startsAt === "number" && Number.isSafeInteger(payload.startsAt) ? payload.startsAt : null;
+        const endsAt = typeof payload.endsAt === "number" && Number.isSafeInteger(payload.endsAt) ? payload.endsAt : null;
+        if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return jsonResponse(request, { success: false, error: "A valid season slug is required." }, 400);
+        if (!name) return jsonResponse(request, { success: false, error: "Season name is required." }, 400);
+        if (startsAt !== null && endsAt !== null && endsAt <= startsAt) return jsonResponse(request, { success: false, error: "Season end must be after season start." }, 400);
+        const now = Date.now();
+        const id = crypto.randomUUID();
+        await env.DB.prepare(
+          `INSERT INTO seasons (id, slug, name, description, status, is_current, starts_at, ends_at, created_at, updated_at)
+           VALUES (?, ?, ?, ?, 'draft', 0, ?, ?, ?, ?)`,
+        ).bind(id, slug, name, description, startsAt, endsAt, now, now).run();
+        const season = await getSeason(env.DB, id);
+        if (!season) throw new Error("Season was written but could not be read back.");
+        return jsonResponse(request, { success: true, authenticated: true, authorized: true, season: serializeSeason(season) }, 201);
+      } catch (error) {
+        console.error("Admin season creation failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to create season." }, 500);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname.startsWith("/admin/seasons/") && url.pathname.endsWith("/activate")) {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") return jsonResponse(request, { success: false, authenticated: true, authorized: false }, 403);
+        const seasonId = decodeURIComponent(url.pathname.slice("/admin/seasons/".length, -"/activate".length));
+        const season = await getSeason(env.DB, seasonId);
+        if (!season) return jsonResponse(request, { success: false, error: "Season not found." }, 404);
+        const now = Date.now();
+        if (season.ends_at !== null && season.ends_at <= now) return jsonResponse(request, { success: false, error: "An already-ended season cannot be activated." }, 409);
+        await env.DB.batch([
+          env.DB.prepare(`UPDATE seasons SET is_current = 0, status = CASE WHEN status = 'active' THEN 'ended' ELSE status END, updated_at = ? WHERE is_current = 1 AND id != ?`).bind(now, seasonId),
+          env.DB.prepare(`UPDATE seasons SET status = 'active', is_current = 1, starts_at = COALESCE(starts_at, ?), updated_at = ? WHERE id = ?`).bind(now, now, seasonId),
+        ]);
+        const active = await getSeason(env.DB, seasonId);
+        if (!active) throw new Error("Activated season could not be read back.");
+        return jsonResponse(request, { success: true, authenticated: true, authorized: true, season: serializeSeason(active) });
+      } catch (error) {
+        console.error("Admin season activation failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to activate season." }, 500);
       }
     }
 
