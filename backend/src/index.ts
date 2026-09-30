@@ -231,6 +231,52 @@ interface SeasonParticipantRow {
   updated_at: number;
 }
 
+type MissionCategory = "explore" | "engage" | "spread" | "invite" | "build";
+type MissionVerificationType = "instant" | "onchain" | "referral" | "social" | "manual" | "system";
+type MissionStatus = "draft" | "active" | "paused" | "ended" | "archived";
+type MissionRepeatType = "once" | "daily" | "weekly" | "repeatable";
+
+interface MissionRow {
+  id: string;
+  season_id: string | null;
+  slug: string;
+  name: string;
+  description: string | null;
+  category: MissionCategory;
+  verification_type: MissionVerificationType;
+  base_xp: number;
+  status: MissionStatus;
+  repeat_type: MissionRepeatType;
+  max_completions: number | null;
+  verification_config: string | null;
+  sort_order: number;
+  starts_at: number | null;
+  ends_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface UserMissionProgressRow {
+  id: string;
+  mission_id: string;
+  user_id: string;
+  status: "available" | "in_progress" | "completed" | "blocked";
+  progress_value: number;
+  target_value: number;
+  completion_count: number;
+  first_started_at: number | null;
+  last_progress_at: number | null;
+  last_completed_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface MissionCompletionSummaryRow {
+  mission_id: string;
+  completion_count: number;
+  last_completed_at: number | null;
+}
+
 interface AuthenticatedContext {
   session: AuthSessionRow;
   user: UserRow;
@@ -763,6 +809,80 @@ function isSeasonOpen(season: SeasonRow, now: number): boolean {
   return season.status === "active" && season.is_current === 1 &&
     (season.starts_at === null || season.starts_at <= now) &&
     (season.ends_at === null || season.ends_at > now);
+}
+
+const MISSION_CATEGORIES = new Set<MissionCategory>([
+  "explore", "engage", "spread", "invite", "build",
+]);
+const MISSION_VERIFICATION_TYPES = new Set<MissionVerificationType>([
+  "instant", "onchain", "referral", "social", "manual", "system",
+]);
+const MISSION_REPEAT_TYPES = new Set<MissionRepeatType>([
+  "once", "daily", "weekly", "repeatable",
+]);
+
+async function getMission(db: D1Database, missionId: string): Promise<MissionRow | null> {
+  return db.prepare(
+    `SELECT id, season_id, slug, name, description, category, verification_type,
+            base_xp, status, repeat_type, max_completions, verification_config,
+            sort_order, starts_at, ends_at, created_at, updated_at
+     FROM missions
+     WHERE id = ?
+     LIMIT 1`,
+  ).bind(missionId).first<MissionRow>();
+}
+
+function isMissionScheduledNow(mission: MissionRow, now: number): boolean {
+  return (
+    (mission.starts_at === null || mission.starts_at <= now) &&
+    (mission.ends_at === null || mission.ends_at > now)
+  );
+}
+
+function serializeMission(row: MissionRow, now = Date.now()) {
+  return {
+    id: row.id,
+    seasonId: row.season_id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    category: row.category,
+    verificationType: row.verification_type,
+    baseXp: row.base_xp,
+    status: row.status,
+    repeatType: row.repeat_type,
+    maxCompletions: row.max_completions,
+    sortOrder: row.sort_order,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    availableNow: row.status === "active" && isMissionScheduledNow(row, now),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function serializeMissionProgress(row: UserMissionProgressRow | null) {
+  if (!row) {
+    return {
+      status: "available",
+      progressValue: 0,
+      targetValue: 1,
+      completionCount: 0,
+      firstStartedAt: null,
+      lastProgressAt: null,
+      lastCompletedAt: null,
+    };
+  }
+
+  return {
+    status: row.status,
+    progressValue: row.progress_value,
+    targetValue: row.target_value,
+    completionCount: row.completion_count,
+    firstStartedAt: row.first_started_at,
+    lastProgressAt: row.last_progress_at,
+    lastCompletedAt: row.last_completed_at,
+  };
 }
 
 export async function awardXp(
@@ -2721,6 +2841,419 @@ export default {
       } catch (error) {
         console.error("Admin season activation failed:", error);
         return jsonResponse(request, { success: false, error: "Unable to activate season." }, 500);
+      }
+    }
+
+    // =========================================================
+    // MISSION ENGINE
+    // Read APIs + Super Admin mission management.
+    // Completion/reward verification is intentionally NOT exposed
+    // as a client-claim endpoint.
+    // =========================================================
+
+    if (request.method === "GET" && url.pathname === "/missions") {
+      try {
+        const season = await getCurrentSeason(env.DB);
+        const now = Date.now();
+
+        if (!season || !isSeasonOpen(season, now)) {
+          return jsonResponse(request, {
+            success: true,
+            season: season ? serializeSeason(season) : null,
+            missions: [],
+          });
+        }
+
+        const result = await env.DB.prepare(
+          `SELECT id, season_id, slug, name, description, category, verification_type,
+                  base_xp, status, repeat_type, max_completions, verification_config,
+                  sort_order, starts_at, ends_at, created_at, updated_at
+           FROM missions
+           WHERE season_id = ?
+             AND status = 'active'
+             AND (starts_at IS NULL OR starts_at <= ?)
+             AND (ends_at IS NULL OR ends_at > ?)
+           ORDER BY sort_order ASC, created_at ASC`,
+        ).bind(season.id, now, now).all<MissionRow>();
+
+        return jsonResponse(request, {
+          success: true,
+          season: serializeSeason(season),
+          missions: (result.results ?? []).map((mission) => serializeMission(mission, now)),
+        });
+      } catch (error) {
+        console.error("Mission list failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load missions." }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/missions/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const season = await getCurrentSeason(env.DB);
+        const now = Date.now();
+
+        if (!season) {
+          return jsonResponse(request, {
+            success: true,
+            authenticated: true,
+            season: null,
+            participation: null,
+            missions: [],
+          });
+        }
+
+        const participant = await getSeasonParticipant(env.DB, season.id, auth.user.id);
+        const missionResult = await env.DB.prepare(
+          `SELECT id, season_id, slug, name, description, category, verification_type,
+                  base_xp, status, repeat_type, max_completions, verification_config,
+                  sort_order, starts_at, ends_at, created_at, updated_at
+           FROM missions
+           WHERE season_id = ?
+             AND status = 'active'
+             AND (starts_at IS NULL OR starts_at <= ?)
+             AND (ends_at IS NULL OR ends_at > ?)
+           ORDER BY sort_order ASC, created_at ASC`,
+        ).bind(season.id, now, now).all<MissionRow>();
+
+        const missions = missionResult.results ?? [];
+        if (missions.length === 0) {
+          return jsonResponse(request, {
+            success: true,
+            authenticated: true,
+            season: serializeSeason(season),
+            participation: participant ? serializeSeasonParticipant(participant) : null,
+            missions: [],
+          });
+        }
+
+        const [progressResult, completionResult] = await Promise.all([
+          env.DB.prepare(
+            `SELECT p.id, p.mission_id, p.user_id, p.status, p.progress_value,
+                    p.target_value, p.completion_count, p.first_started_at,
+                    p.last_progress_at, p.last_completed_at, p.created_at, p.updated_at
+             FROM user_mission_progress p
+             JOIN missions m ON m.id = p.mission_id
+             WHERE p.user_id = ? AND m.season_id = ?`,
+          ).bind(auth.user.id, season.id).all<UserMissionProgressRow>(),
+          env.DB.prepare(
+            `SELECT c.mission_id, COUNT(*) AS completion_count,
+                    MAX(c.verified_at) AS last_completed_at
+             FROM mission_completions c
+             JOIN missions m ON m.id = c.mission_id
+             WHERE c.user_id = ?
+               AND m.season_id = ?
+               AND c.status IN ('verified', 'rewarded')
+             GROUP BY c.mission_id`,
+          ).bind(auth.user.id, season.id).all<MissionCompletionSummaryRow>(),
+        ]);
+
+        const progressByMission = new Map(
+          (progressResult.results ?? []).map((row) => [row.mission_id, row]),
+        );
+        const completionByMission = new Map(
+          (completionResult.results ?? []).map((row) => [row.mission_id, row]),
+        );
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          season: serializeSeason(season),
+          participation: participant ? serializeSeasonParticipant(participant) : null,
+          missions: missions.map((mission) => {
+            const progress = progressByMission.get(mission.id) ?? null;
+            const completion = completionByMission.get(mission.id) ?? null;
+            return {
+              ...serializeMission(mission, now),
+              progress: serializeMissionProgress(progress),
+              verifiedCompletionCount: completion?.completion_count ?? 0,
+              lastVerifiedCompletionAt: completion?.last_completed_at ?? null,
+            };
+          }),
+        });
+      } catch (error) {
+        console.error("Mission profile failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load mission progress." }, 500);
+      }
+    }
+
+    if (request.method === "POST" && url.pathname === "/admin/missions") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") {
+          return jsonResponse(
+            request,
+            { success: false, authenticated: true, authorized: false },
+            403,
+          );
+        }
+
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400);
+        }
+
+        if (typeof body !== "object" || body === null) {
+          return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        }
+
+        const payload = body as Record<string, unknown>;
+        const slug = typeof payload.slug === "string" ? payload.slug.trim().toLowerCase() : "";
+        const name = typeof payload.name === "string" ? payload.name.trim() : "";
+        const description =
+          typeof payload.description === "string" ? payload.description.trim() || null : null;
+        const category =
+          typeof payload.category === "string" ? payload.category.trim().toLowerCase() : "";
+        const verificationType =
+          typeof payload.verificationType === "string"
+            ? payload.verificationType.trim().toLowerCase()
+            : "";
+        const repeatType =
+          typeof payload.repeatType === "string"
+            ? payload.repeatType.trim().toLowerCase()
+            : "once";
+        const baseXp = payload.baseXp;
+        const maxCompletions =
+          payload.maxCompletions === null || payload.maxCompletions === undefined
+            ? null
+            : payload.maxCompletions;
+        const sortOrder =
+          payload.sortOrder === undefined
+            ? 0
+            : payload.sortOrder;
+        const startsAt =
+          payload.startsAt === null || payload.startsAt === undefined
+            ? null
+            : payload.startsAt;
+        const endsAt =
+          payload.endsAt === null || payload.endsAt === undefined
+            ? null
+            : payload.endsAt;
+        const requestedSeasonId =
+          typeof payload.seasonId === "string" ? payload.seasonId.trim() || null : null;
+
+        if (!slug || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) {
+          return jsonResponse(request, { success: false, error: "A valid mission slug is required." }, 400);
+        }
+        if (!name) {
+          return jsonResponse(request, { success: false, error: "Mission name is required." }, 400);
+        }
+        if (!MISSION_CATEGORIES.has(category as MissionCategory)) {
+          return jsonResponse(request, { success: false, error: "Invalid mission category." }, 400);
+        }
+        if (!MISSION_VERIFICATION_TYPES.has(verificationType as MissionVerificationType)) {
+          return jsonResponse(request, { success: false, error: "Invalid mission verification type." }, 400);
+        }
+        if (!MISSION_REPEAT_TYPES.has(repeatType as MissionRepeatType)) {
+          return jsonResponse(request, { success: false, error: "Invalid mission repeat type." }, 400);
+        }
+        if (!Number.isSafeInteger(baseXp) || (baseXp as number) < 0) {
+          return jsonResponse(request, { success: false, error: "Base XP must be a non-negative safe integer." }, 400);
+        }
+        if (
+          maxCompletions !== null &&
+          (!Number.isSafeInteger(maxCompletions) || (maxCompletions as number) <= 0)
+        ) {
+          return jsonResponse(request, { success: false, error: "Max completions must be a positive safe integer or null." }, 400);
+        }
+        if (repeatType === "once" && maxCompletions !== null && maxCompletions !== 1) {
+          return jsonResponse(request, { success: false, error: "One-time missions can only have one completion." }, 400);
+        }
+        if (!Number.isSafeInteger(sortOrder)) {
+          return jsonResponse(request, { success: false, error: "Sort order must be a safe integer." }, 400);
+        }
+        if (startsAt !== null && !Number.isSafeInteger(startsAt)) {
+          return jsonResponse(request, { success: false, error: "Mission start time must be an integer timestamp or null." }, 400);
+        }
+        if (endsAt !== null && !Number.isSafeInteger(endsAt)) {
+          return jsonResponse(request, { success: false, error: "Mission end time must be an integer timestamp or null." }, 400);
+        }
+        if (
+          startsAt !== null &&
+          endsAt !== null &&
+          (endsAt as number) <= (startsAt as number)
+        ) {
+          return jsonResponse(request, { success: false, error: "Mission end must be after mission start." }, 400);
+        }
+
+        let season: SeasonRow | null = null;
+        if (requestedSeasonId) {
+          season = await getSeason(env.DB, requestedSeasonId);
+          if (!season) {
+            return jsonResponse(request, { success: false, error: "Season not found." }, 404);
+          }
+        } else {
+          season = await getCurrentSeason(env.DB);
+          if (!season) {
+            return jsonResponse(
+              request,
+              { success: false, error: "No current season exists. Supply a seasonId." },
+              409,
+            );
+          }
+        }
+
+        let verificationConfig: string | null = null;
+        if (payload.verificationConfig !== undefined && payload.verificationConfig !== null) {
+          if (
+            typeof payload.verificationConfig !== "object" ||
+            Array.isArray(payload.verificationConfig)
+          ) {
+            return jsonResponse(
+              request,
+              { success: false, error: "Verification config must be a JSON object or null." },
+              400,
+            );
+          }
+          verificationConfig = JSON.stringify(payload.verificationConfig);
+        }
+
+        const now = Date.now();
+        const id = crypto.randomUUID();
+
+        try {
+          await env.DB.prepare(
+            `INSERT INTO missions (
+               id, season_id, slug, name, description, category, verification_type,
+               base_xp, status, repeat_type, max_completions, verification_config,
+               sort_order, starts_at, ends_at, created_at, updated_at
+             )
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ).bind(
+            id,
+            season.id,
+            slug,
+            name,
+            description,
+            category,
+            verificationType,
+            baseXp as number,
+            repeatType,
+            maxCompletions as number | null,
+            verificationConfig,
+            sortOrder as number,
+            startsAt as number | null,
+            endsAt as number | null,
+            now,
+            now,
+          ).run();
+        } catch (error) {
+          const existing = await env.DB.prepare(
+            `SELECT id FROM missions WHERE slug = ? LIMIT 1`,
+          ).bind(slug).first<{ id: string }>();
+          if (existing) {
+            return jsonResponse(request, { success: false, error: "Mission slug already exists." }, 409);
+          }
+          throw error;
+        }
+
+        const mission = await getMission(env.DB, id);
+        if (!mission) throw new Error("Mission was written but could not be read back.");
+
+        return jsonResponse(
+          request,
+          {
+            success: true,
+            authenticated: true,
+            authorized: true,
+            admin: { role: admin.role },
+            mission: serializeMission(mission, now),
+          },
+          201,
+        );
+      } catch (error) {
+        console.error("Admin mission creation failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to create mission." }, 500);
+      }
+    }
+
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/admin/missions/") &&
+      url.pathname.endsWith("/activate")
+    ) {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") {
+          return jsonResponse(
+            request,
+            { success: false, authenticated: true, authorized: false },
+            403,
+          );
+        }
+
+        const missionId = decodeURIComponent(
+          url.pathname.slice("/admin/missions/".length, -"/activate".length),
+        ).trim();
+
+        if (!missionId) {
+          return jsonResponse(request, { success: false, error: "Mission ID is required." }, 400);
+        }
+
+        const mission = await getMission(env.DB, missionId);
+        if (!mission) {
+          return jsonResponse(request, { success: false, error: "Mission not found." }, 404);
+        }
+        if (mission.status === "archived") {
+          return jsonResponse(request, { success: false, error: "Archived missions cannot be activated." }, 409);
+        }
+
+        const now = Date.now();
+        if (mission.ends_at !== null && mission.ends_at <= now) {
+          return jsonResponse(request, { success: false, error: "An already-ended mission cannot be activated." }, 409);
+        }
+
+        if (mission.season_id) {
+          const season = await getSeason(env.DB, mission.season_id);
+          if (!season) {
+            return jsonResponse(request, { success: false, error: "Mission season not found." }, 409);
+          }
+          if (!isSeasonOpen(season, now)) {
+            return jsonResponse(
+              request,
+              { success: false, error: "Mission season must be the active current season." },
+              409,
+            );
+          }
+        }
+
+        await env.DB.prepare(
+          `UPDATE missions
+           SET status = 'active',
+               starts_at = COALESCE(starts_at, ?),
+               updated_at = ?
+           WHERE id = ?`,
+        ).bind(now, now, mission.id).run();
+
+        const active = await getMission(env.DB, mission.id);
+        if (!active) throw new Error("Activated mission could not be read back.");
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          authorized: true,
+          admin: { role: admin.role },
+          mission: serializeMission(active, now),
+        });
+      } catch (error) {
+        console.error("Admin mission activation failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to activate mission." }, 500);
       }
     }
 
