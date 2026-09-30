@@ -294,6 +294,45 @@ interface MissionCompletionRow {
   updated_at: number;
 }
 
+
+type ReferralStage = "joined" | "activated" | "engaged" | "qualified" | "blocked";
+
+interface ReferralRelationshipRow {
+  id: string;
+  referrer_user_id: string;
+  referred_user_id: string;
+  referral_code: string;
+  status: ReferralStage;
+  joined_at: number;
+  activated_at: number | null;
+  engaged_at: number | null;
+  qualified_at: number | null;
+  blocked_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
+interface ReferralNetworkRow {
+  referral_id: string;
+  referred_user_id: string;
+  username: string | null;
+  wallet_address: string;
+  status: ReferralStage;
+  joined_at: number;
+  activated_at: number | null;
+  engaged_at: number | null;
+  qualified_at: number | null;
+}
+
+interface ReferralStageCountsRow {
+  total: number;
+  joined: number;
+  activated: number;
+  engaged: number;
+  qualified: number;
+  blocked: number;
+}
+
 interface AuthenticatedContext {
   session: AuthSessionRow;
   user: UserRow;
@@ -1070,6 +1109,128 @@ async function rewardVerifiedMissionCompletion(
   return { completion, award };
 }
 
+
+async function getReferralRelationshipByReferredUser(
+  db: D1Database,
+  userId: string,
+): Promise<ReferralRelationshipRow | null> {
+  return db.prepare(
+    `SELECT id, referrer_user_id, referred_user_id, referral_code, status,
+            joined_at, activated_at, engaged_at, qualified_at, blocked_at,
+            created_at, updated_at
+     FROM referral_relationships
+     WHERE referred_user_id = ?
+     LIMIT 1`,
+  ).bind(userId).first<ReferralRelationshipRow>();
+}
+
+async function getReferralRelationshipById(
+  db: D1Database,
+  referralId: string,
+): Promise<ReferralRelationshipRow | null> {
+  return db.prepare(
+    `SELECT id, referrer_user_id, referred_user_id, referral_code, status,
+            joined_at, activated_at, engaged_at, qualified_at, blocked_at,
+            created_at, updated_at
+     FROM referral_relationships
+     WHERE id = ?
+     LIMIT 1`,
+  ).bind(referralId).first<ReferralRelationshipRow>();
+}
+
+function serializeReferralRelationship(row: ReferralRelationshipRow) {
+  return {
+    id: row.id,
+    referrerUserId: row.referrer_user_id,
+    referredUserId: row.referred_user_id,
+    referralCode: row.referral_code,
+    status: row.status,
+    joinedAt: row.joined_at,
+    activatedAt: row.activated_at,
+    engagedAt: row.engaged_at,
+    qualifiedAt: row.qualified_at,
+    blockedAt: row.blocked_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function attachReferral(
+  db: D1Database,
+  referredUser: UserRow,
+  suppliedCode: string,
+): Promise<{ created: boolean; relationship: ReferralRelationshipRow }> {
+  const referralCode = suppliedCode.trim().toUpperCase();
+  if (!referralCode) throw new Error("Referral code is required.");
+
+  const existing = await getReferralRelationshipByReferredUser(db, referredUser.id);
+  if (existing) {
+    if (existing.referral_code !== referralCode) {
+      throw new Error("This account is already linked to another referrer.");
+    }
+    return { created: false, relationship: existing };
+  }
+
+  if (referredUser.referred_by_user_id) {
+    throw new Error("This account already has a referrer.");
+  }
+
+  const referrer = await db.prepare(
+    `SELECT id, username, referral_code, referred_by_user_id, country,
+            status, created_at, last_active_at
+     FROM users
+     WHERE referral_code = ?
+     LIMIT 1`,
+  ).bind(referralCode).first<UserRow>();
+
+  if (!referrer || referrer.status !== "active") {
+    throw new Error("Referral code is invalid or inactive.");
+  }
+  if (referrer.id === referredUser.id) {
+    throw new Error("Self-referrals are not allowed.");
+  }
+
+  const now = Date.now();
+  const referralId = crypto.randomUUID();
+  const eventId = crypto.randomUUID();
+  const eventKey = `referral:${referralId}:joined`;
+
+  try {
+    await db.batch([
+      db.prepare(
+        `INSERT INTO referral_relationships (
+           id, referrer_user_id, referred_user_id, referral_code, status,
+           joined_at, activated_at, engaged_at, qualified_at, blocked_at,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, 'joined', ?, NULL, NULL, NULL, NULL, ?, ?)`,
+      ).bind(referralId, referrer.id, referredUser.id, referralCode, now, now, now),
+      db.prepare(
+        `UPDATE users
+         SET referred_by_user_id = ?
+         WHERE id = ? AND referred_by_user_id IS NULL`,
+      ).bind(referrer.id, referredUser.id),
+      db.prepare(
+        `INSERT INTO referral_events (
+           id, referral_id, referrer_user_id, referred_user_id, event_type,
+           stage, source_type, source_id, season_id, idempotency_key,
+           metadata, created_at
+         ) VALUES (?, ?, ?, ?, 'joined', 'joined', 'referral_code', ?, NULL, ?, NULL, ?)`,
+      ).bind(eventId, referralId, referrer.id, referredUser.id, referralCode, eventKey, now),
+    ]);
+  } catch (error) {
+    const raced = await getReferralRelationshipByReferredUser(db, referredUser.id);
+    if (!raced) throw error;
+    if (raced.referral_code !== referralCode) {
+      throw new Error("This account is already linked to another referrer.");
+    }
+    return { created: false, relationship: raced };
+  }
+
+  const relationship = await getReferralRelationshipById(db, referralId);
+  if (!relationship) throw new Error("Referral relationship was written but could not be read back.");
+  return { created: true, relationship };
+}
+
 export async function awardXp(
   db: D1Database,
   input: AwardXpInput,
@@ -1151,6 +1312,50 @@ export async function awardXp(
   if (!transaction || !balance) throw new Error("XP award was written but could not be read back.");
   return { created: true, transaction, lifetimeXp: balance.lifetime_xp, seasonXp: updatedParticipant?.season_xp ?? null };
 }
+
+
+// =========================================================
+// INTEGRATED PARTICIPATION LAYER (0010-0017)
+// =========================================================
+type TrustedActivityTrustLevel = "backend" | "onchain" | "admin" | "system";
+type TrustedActivitySourceType = "mission" | "referral" | "genesis" | "onchain" | "campaign" | "admin" | "system";
+interface ProgressionLevelRow { id:string; key:string; name:string; description:string|null; min_lifetime_xp:number; sort_order:number; icon_key:string|null; benefits_config:string|null; }
+interface ReferralQualityRuleSetRow { id:string; season_id:string|null; key:string; name:string; version:number; status:string; starts_at:number|null; ends_at:number|null; }
+interface ReferralQualityStageRuleRow { id:string; rule_set_id:string; stage:"activated"|"engaged"|"qualified"; min_verified_missions:number; min_lifetime_xp:number; min_season_xp:number; min_genesis_balance:number; min_account_age_seconds:number; requirements_config:string|null; reward_base_xp:number; sort_order:number; }
+function safeJsonParse(value:string|null):unknown|null { if(!value)return null; try{return JSON.parse(value);}catch{return null;} }
+async function recordTrustedActivity(db:D1Database,input:{userId:string;seasonId?:string|null;eventType:string;sourceType:TrustedActivitySourceType;sourceId?:string|null;trustLevel:TrustedActivityTrustLevel;occurredAt?:number;idempotencyKey:string;evidence?:unknown;metadata?:unknown;}):Promise<string>{
+  const existing=await db.prepare("SELECT id FROM trusted_activity_events WHERE idempotency_key = ? LIMIT 1").bind(input.idempotencyKey).first<{id:string}>(); if(existing)return existing.id;
+  const id=crypto.randomUUID(),now=Date.now();
+  try{await db.prepare("INSERT INTO trusted_activity_events (id,user_id,season_id,event_type,source_type,source_id,trust_level,occurred_at,idempotency_key,evidence,metadata,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,input.userId,input.seasonId??null,input.eventType,input.sourceType,input.sourceId??null,input.trustLevel,input.occurredAt??now,input.idempotencyKey,input.evidence===undefined?null:JSON.stringify(input.evidence),input.metadata===undefined?null:JSON.stringify(input.metadata),now).run();return id;}catch(error){const raced=await db.prepare("SELECT id FROM trusted_activity_events WHERE idempotency_key = ? LIMIT 1").bind(input.idempotencyKey).first<{id:string}>();if(raced)return raced.id;throw error;}
+}
+async function getProgressionSnapshot(db:D1Database,userId:string){
+  const balance=await getXpBalance(db,userId),xp=balance?.lifetime_xp??0;
+  const levels=(await db.prepare("SELECT id,key,name,description,min_lifetime_xp,sort_order,icon_key,benefits_config FROM progression_levels WHERE status='active' ORDER BY min_lifetime_xp ASC,sort_order ASC").all<ProgressionLevelRow>()).results??[];
+  let current:ProgressionLevelRow|null=null,next:ProgressionLevelRow|null=null; for(const level of levels){if(level.min_lifetime_xp<=xp)current=level;else{next=level;break;}}
+  const [milestones,achievements,streaks]=await Promise.all([
+    db.prepare("SELECT u.id,u.milestone_id,u.season_id,u.achieved_value,u.unlocked_at,m.key,m.name,m.metric_type,m.target_value FROM user_milestone_unlocks u JOIN progression_milestones m ON m.id=u.milestone_id WHERE u.user_id=? AND u.status='unlocked' ORDER BY u.unlocked_at DESC LIMIT 50").bind(userId).all(),
+    db.prepare("SELECT ua.id,ua.season_id,ua.earned_at,a.key,a.name,a.category,a.rarity,a.icon_key FROM user_achievements ua JOIN achievements a ON a.id=ua.achievement_id WHERE ua.user_id=? AND ua.status='earned' ORDER BY ua.earned_at DESC LIMIT 50").bind(userId).all(),
+    db.prepare("SELECT streak_type,current_count,best_count,last_period_key,last_qualified_at,freeze_count,metadata,updated_at FROM user_streaks WHERE user_id=? ORDER BY current_count DESC").bind(userId).all()
+  ]);
+  return {lifetimeXp:xp,currentLevel:current?{id:current.id,key:current.key,name:current.name,description:current.description,minLifetimeXp:current.min_lifetime_xp,benefitsConfig:safeJsonParse(current.benefits_config)}:null,nextLevel:next?{id:next.id,key:next.key,name:next.name,minLifetimeXp:next.min_lifetime_xp}:null,xpToNextLevel:next?Math.max(0,next.min_lifetime_xp-xp):0,milestones:milestones.results??[],achievements:achievements.results??[],streaks:streaks.results??[]};
+}
+async function getSeasonRankSnapshot(db:D1Database,userId:string,seasonId:string){const me=await getSeasonParticipant(db,seasonId,userId);if(!me)return null;const higher=await db.prepare("SELECT COUNT(*) AS count FROM season_participants WHERE season_id=? AND status='active' AND (season_xp>? OR (season_xp=? AND (joined_at<? OR (joined_at=? AND user_id<?))))").bind(seasonId,me.season_xp,me.season_xp,me.joined_at,me.joined_at,userId).first<CountRow>();return {rank:(higher?.count??0)+1,seasonXp:me.season_xp};}
+async function evaluateReferralQuality(db:D1Database,referredUserId:string,seasonId:string|null){
+  const relationship=await getReferralRelationshipByReferredUser(db,referredUserId);if(!relationship||relationship.status==='blocked'||relationship.status==='qualified')return {changed:false,relationship};const now=Date.now();
+  let ruleSet=await db.prepare("SELECT id,season_id,key,name,version,status,starts_at,ends_at FROM referral_quality_rule_sets WHERE status='active' AND season_id IS ? AND (starts_at IS NULL OR starts_at<=?) AND (ends_at IS NULL OR ends_at>?) ORDER BY version DESC LIMIT 1").bind(seasonId,now,now).first<ReferralQualityRuleSetRow>();
+  if(!ruleSet&&seasonId!==null)ruleSet=await db.prepare("SELECT id,season_id,key,name,version,status,starts_at,ends_at FROM referral_quality_rule_sets WHERE status='active' AND season_id IS NULL AND (starts_at IS NULL OR starts_at<=?) AND (ends_at IS NULL OR ends_at>?) ORDER BY version DESC LIMIT 1").bind(now,now).first<ReferralQualityRuleSetRow>();if(!ruleSet)return {changed:false,relationship,reason:'no_active_rule_set'};
+  const rules=(await db.prepare("SELECT id,rule_set_id,stage,min_verified_missions,min_lifetime_xp,min_season_xp,min_genesis_balance,min_account_age_seconds,requirements_config,reward_base_xp,sort_order FROM referral_quality_stage_rules WHERE rule_set_id=? ORDER BY sort_order ASC").bind(ruleSet.id).all<ReferralQualityStageRuleRow>()).results??[];
+  const order:ReferralStage[]=['joined','activated','engaged','qualified'];let currentIndex=order.indexOf(relationship.status);const transitions:unknown[]=[];
+  for(const rule of rules){const targetIndex=order.indexOf(rule.stage);if(targetIndex<=currentIndex)continue;const [missions,balance,ownership,user,participant]=await Promise.all([db.prepare("SELECT COUNT(*) AS count FROM mission_completions WHERE user_id=? AND status='rewarded' AND (? IS NULL OR season_id=?)").bind(referredUserId,seasonId,seasonId).first<CountRow>(),getXpBalance(db,referredUserId),getGenesisOwnership(db,referredUserId),db.prepare("SELECT created_at FROM users WHERE id=? LIMIT 1").bind(referredUserId).first<{created_at:number}>(),seasonId?getSeasonParticipant(db,seasonId,referredUserId):Promise.resolve(null)]);const evidence={verifiedMissions:missions?.count??0,lifetimeXp:balance?.lifetime_xp??0,seasonXp:participant?.season_xp??0,genesisBalance:ownership?.balance??0,accountAgeSeconds:user?Math.max(0,Math.floor((now-user.created_at)/1000)):0};const passed=evidence.verifiedMissions>=rule.min_verified_missions&&evidence.lifetimeXp>=rule.min_lifetime_xp&&evidence.seasonXp>=rule.min_season_xp&&evidence.genesisBalance>=rule.min_genesis_balance&&evidence.accountAgeSeconds>=rule.min_account_age_seconds;
+    await db.prepare("INSERT INTO referral_quality_evaluations (id,referral_id,rule_set_id,stage,result,evidence,evaluated_at,idempotency_key) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(idempotency_key) DO UPDATE SET result=excluded.result,evidence=excluded.evidence,evaluated_at=excluded.evaluated_at").bind(crypto.randomUUID(),relationship.id,ruleSet.id,rule.stage,passed?'passed':'failed',JSON.stringify(evidence),now,`refq:${relationship.id}:${ruleSet.id}:${rule.stage}`).run();if(!passed)break;
+    const tsColumn=rule.stage==='activated'?'activated_at':rule.stage==='engaged'?'engaged_at':'qualified_at';await db.prepare(`UPDATE referral_relationships SET status=?, ${tsColumn}=COALESCE(${tsColumn},?), updated_at=? WHERE id=? AND status<>'blocked'`).bind(rule.stage,now,now,relationship.id).run();
+    await db.prepare("INSERT OR IGNORE INTO referral_events (id,referral_id,referrer_user_id,referred_user_id,event_type,stage,source_type,source_id,season_id,idempotency_key,metadata,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(crypto.randomUUID(),relationship.id,relationship.referrer_user_id,relationship.referred_user_id,rule.stage,rule.stage,'system',rule.id,seasonId,`refstage:${relationship.id}:${rule.stage}`,JSON.stringify({ruleSetId:ruleSet.id,evidence}),now).run();
+    if(rule.reward_base_xp>0){let rewardSeasonId:string|null=null;if(seasonId){const referrerParticipant=await getSeasonParticipant(db,seasonId,relationship.referrer_user_id);if(referrerParticipant?.status==='active')rewardSeasonId=seasonId;}await awardXp(db,{userId:relationship.referrer_user_id,sourceType:'referral',sourceId:relationship.id,seasonId:rewardSeasonId,baseXp:rule.reward_base_xp,reason:`Referral reached ${rule.stage}`,idempotencyKey:`refxp:${relationship.id}:${ruleSet.id}:${rule.stage}`,boostType:'referral'});}transitions.push({stage:rule.stage,evidence,rewardBaseXp:rule.reward_base_xp});currentIndex=targetIndex;
+  }
+  return {changed:transitions.length>0,relationship:await getReferralRelationshipByReferredUser(db,referredUserId),transitions,ruleSet:{id:ruleSet.id,key:ruleSet.key,version:ruleSet.version}};
+}
+async function processMissionParticipation(db:D1Database,mission:MissionRow,userId:string,completion:MissionCompletionRow){const activityId=await recordTrustedActivity(db,{userId,seasonId:mission.season_id,eventType:'mission_completed',sourceType:'mission',sourceId:mission.id,trustLevel:'admin',occurredAt:completion.rewarded_at??Date.now(),idempotencyKey:`activity:mission:${completion.id}`,evidence:{completionId:completion.id,xpTransactionId:completion.xp_transaction_id}});return {activityId,referral:await evaluateReferralQuality(db,userId,mission.season_id)};}
+async function writeAdminAudit(db:D1Database,adminUserId:string,action:string,targetType:string,targetId:string|null,reason:string|null,newValue:unknown,requestId:string|null){await db.prepare("INSERT INTO admin_audit_log (id,admin_user_id,action,target_type,target_id,reason,old_value,new_value,request_id,created_at) VALUES (?,?,?,?,?,?,NULL,?,?,?)").bind(crypto.randomUUID(),adminUserId,action,targetType,targetId,reason,newValue===undefined?null:JSON.stringify(newValue),requestId,Date.now()).run();}
 
 export default {
 
@@ -3498,6 +3703,9 @@ export default {
           verificationData: { verifier: "super_admin", verifiedByUserId: auth.user.id },
         });
 
+        const participation = await processMissionParticipation(env.DB, mission, userId, result.completion);
+        await writeAdminAudit(env.DB, auth.user.id, "mission.complete", "mission", mission.id, null, { userId, completionId: result.completion.id, activityId: participation.activityId }, request.headers.get("cf-ray"));
+
         return jsonResponse(request, {
           success: true,
           authenticated: true,
@@ -3516,6 +3724,7 @@ export default {
             verifiedAt: result.completion.verified_at,
             rewardedAt: result.completion.rewarded_at,
           },
+          participation,
           award: {
             created: result.award.created,
             lifetimeXp: result.award.lifetimeXp,
@@ -3529,6 +3738,163 @@ export default {
         return jsonResponse(request, { success: false, error: message }, 409);
       }
     }
+
+    // =========================================================
+    // REFERRAL QUALITY ENGINE
+    // v1: permanent referral attachment + referral profile/network.
+    // Quality-stage promotion and referral XP are trusted backend flows,
+    // not public client-claim actions.
+    // =========================================================
+
+    if (request.method === "POST" && url.pathname === "/referrals/attach") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        let body: unknown;
+        try {
+          body = await request.json();
+        } catch {
+          return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400);
+        }
+
+        if (typeof body !== "object" || body === null) {
+          return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        }
+
+        const payload = body as Record<string, unknown>;
+        const referralCode =
+          typeof payload.referralCode === "string" ? payload.referralCode.trim() : "";
+
+        if (!referralCode) {
+          return jsonResponse(request, { success: false, error: "Referral code is required." }, 400);
+        }
+
+        const result = await attachReferral(env.DB, auth.user, referralCode);
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          created: result.created,
+          referral: serializeReferralRelationship(result.relationship),
+        }, result.created ? 201 : 200);
+      } catch (error) {
+        console.error("Referral attach failed:", error);
+        const message = error instanceof Error ? error.message : "Unable to attach referral.";
+        const status =
+          message === "Referral code is invalid or inactive." ? 404 :
+          message === "Self-referrals are not allowed." ? 409 :
+          message.includes("already") ? 409 : 500;
+        return jsonResponse(request, { success: false, error: message }, status);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/referrals/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) {
+          return jsonResponse(request, { success: false, authenticated: false }, 401);
+        }
+
+        const [relationship, ownership, counts, networkResult] = await Promise.all([
+          getReferralRelationshipByReferredUser(env.DB, auth.user.id),
+          getGenesisOwnership(env.DB, auth.user.id),
+          env.DB.prepare(
+            `SELECT
+               COUNT(*) AS total,
+               SUM(CASE WHEN status = 'joined' THEN 1 ELSE 0 END) AS joined,
+               SUM(CASE WHEN status = 'activated' THEN 1 ELSE 0 END) AS activated,
+               SUM(CASE WHEN status = 'engaged' THEN 1 ELSE 0 END) AS engaged,
+               SUM(CASE WHEN status = 'qualified' THEN 1 ELSE 0 END) AS qualified,
+               SUM(CASE WHEN status = 'blocked' THEN 1 ELSE 0 END) AS blocked
+             FROM referral_relationships
+             WHERE referrer_user_id = ?`,
+          ).bind(auth.user.id).first<ReferralStageCountsRow>(),
+          env.DB.prepare(
+            `SELECT r.id AS referral_id, r.referred_user_id, u.username,
+                    w.address AS wallet_address, r.status, r.joined_at,
+                    r.activated_at, r.engaged_at, r.qualified_at
+             FROM referral_relationships r
+             JOIN users u ON u.id = r.referred_user_id
+             JOIN wallets w ON w.user_id = u.id AND w.is_primary = 1
+             WHERE r.referrer_user_id = ?
+             ORDER BY r.joined_at DESC
+             LIMIT 100`,
+          ).bind(auth.user.id).all<ReferralNetworkRow>(),
+        ]);
+
+        let referrer: { userId: string; username: string | null; referralCode: string } | null = null;
+        if (relationship) {
+          const row = await env.DB.prepare(
+            `SELECT id, username, referral_code
+             FROM users
+             WHERE id = ?
+             LIMIT 1`,
+          ).bind(relationship.referrer_user_id)
+            .first<{ id: string; username: string | null; referral_code: string }>();
+
+          if (row) {
+            referrer = {
+              userId: row.id,
+              username: row.username,
+              referralCode: row.referral_code,
+            };
+          }
+        }
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          referralCode: auth.user.referral_code,
+          referredBy: relationship ? {
+            relationship: serializeReferralRelationship(relationship),
+            referrer,
+          } : null,
+          referralBoost: {
+            percent: ownership?.referral_boost_percent ?? 0,
+            genesisTierKey: ownership?.tier_key ?? "none",
+            genesisTierName: ownership?.tier_name ?? "None",
+          },
+          stats: {
+            total: counts?.total ?? 0,
+            joined: counts?.joined ?? 0,
+            activated: counts?.activated ?? 0,
+            engaged: counts?.engaged ?? 0,
+            qualified: counts?.qualified ?? 0,
+            blocked: counts?.blocked ?? 0,
+          },
+          network: (networkResult.results ?? []).map((row) => ({
+            referralId: row.referral_id,
+            referredUserId: row.referred_user_id,
+            username: row.username,
+            walletAddress: getAddress(row.wallet_address),
+            status: row.status,
+            joinedAt: row.joined_at,
+            activatedAt: row.activated_at,
+            engagedAt: row.engaged_at,
+            qualifiedAt: row.qualified_at,
+          })),
+        });
+      } catch (error) {
+        console.error("Referral profile failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load referral profile." }, 500);
+      }
+    }
+
+    // =========================================================
+    // INTEGRATED USER EXPERIENCE (0010-0017)
+    // =========================================================
+    if (request.method === "GET" && url.pathname === "/me/overview") {
+      try { const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);const [xp,genesis,progression,referral,refCounts,rewards,eligibility,campaigns]=await Promise.all([getXpBalance(env.DB,auth.user.id),getGenesisOwnership(env.DB,auth.user.id),getProgressionSnapshot(env.DB,auth.user.id),getReferralRelationshipByReferredUser(env.DB,auth.user.id),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=?").bind(auth.user.id).first<{total:number;qualified:number}>(),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='claimable' THEN 1 ELSE 0 END) AS claimable,SUM(CASE WHEN status='claimed' THEN 1 ELSE 0 END) AS claimed FROM reward_entitlements WHERE user_id=?").bind(auth.user.id).first<{total:number;claimable:number;claimed:number}>(),env.DB.prepare("SELECT e.result,e.passed_required,e.total_required,e.evaluated_at,p.key,p.name,p.program_type,p.status FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC LIMIT 10").bind(auth.user.id).all(),env.DB.prepare("SELECT cp.campaign_id,cp.status,cp.score,cp.joined_at,cp.completed_at,c.slug,c.name,c.campaign_type,c.ends_at FROM campaign_participants cp JOIN campaigns c ON c.id=cp.campaign_id WHERE cp.user_id=? ORDER BY cp.updated_at DESC LIMIT 10").bind(auth.user.id).all()]);const participant=season?await getSeasonParticipant(env.DB,season.id,auth.user.id):null;const rank=season&&participant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;return jsonResponse(request,{success:true,authenticated:true,user:{id:auth.user.id,username:auth.user.username,referralCode:auth.user.referral_code,country:auth.user.country,createdAt:auth.user.created_at},wallet:{address:getAddress(auth.wallet.address),chainId:auth.wallet.chain_id},genesis:genesis?serializeGenesisOwnership(genesis):null,xp:{lifetimeXp:xp?.lifetime_xp??0,seasonXp:participant?.season_xp??0},progression,season:season?{...serializeSeason(season),participant:participant?serializeSeasonParticipant(participant):null,rank}:null,referrals:{referredBy:referral?serializeReferralRelationship(referral):null,total:refCounts?.total??0,qualified:refCounts?.qualified??0},campaigns:campaigns.results??[],eligibility:eligibility.results??[],rewards:{total:rewards?.total??0,claimable:rewards?.claimable??0,claimed:rewards?.claimed??0}});}catch(error){console.error("Overview failed:",error);return jsonResponse(request,{success:false,error:"Unable to load account overview."},500);}
+    }
+    if(request.method==="GET"&&url.pathname==="/progression/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
+    if(request.method==="GET"&&url.pathname==="/leaderboard/season"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);if(!season)return jsonResponse(request,{success:true,season:null,entries:[]});const top=await env.DB.prepare("SELECT sp.user_id,u.username,sp.season_xp,sp.joined_at FROM season_participants sp JOIN users u ON u.id=sp.user_id WHERE sp.season_id=? AND sp.status='active' ORDER BY sp.season_xp DESC,sp.joined_at ASC,sp.user_id ASC LIMIT 100").bind(season.id).all();return jsonResponse(request,{success:true,season:serializeSeason(season),me:await getSeasonRankSnapshot(env.DB,auth.user.id,season.id),entries:top.results??[]});}
+    if(request.method==="GET"&&url.pathname==="/campaigns"){const now=Date.now();const result=await env.DB.prepare("SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,display_config FROM campaigns WHERE visibility='public' AND status IN ('active','ended') AND (starts_at IS NULL OR starts_at<=?) ORDER BY starts_at DESC").bind(now).all();return jsonResponse(request,{success:true,campaigns:result.results??[]});}
+    if(request.method==="GET"&&url.pathname==="/eligibility/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.result,e.passed_required,e.total_required,e.reason_summary,e.evaluated_at,e.frozen,p.id AS program_id,p.key,p.name,p.program_type,p.version,p.status,p.frozen_at FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,evaluations:result.results??[]});}
+    if(request.method==="GET"&&url.pathname==="/rewards/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.amount_atomic,e.token_id,e.metadata,e.status,e.earned_at,e.approved_at,e.claimable_at,e.claimed_at,e.cancelled_at,p.key,p.name,p.reward_type,p.asset_chain_id,p.asset_address,p.asset_symbol,p.distribution_mode FROM reward_entitlements e JOIN reward_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.earned_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,entitlements:result.results??[]});}
+    if(request.method==="POST"&&url.pathname==="/admin/referrals/evaluate"){try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const admin=await getActiveAdmin(env.DB,auth.user.id);if(!admin||admin.role!=="super_admin")return jsonResponse(request,{success:false,authorized:false},403);const body=await request.json() as {userId?:string};const userId=body.userId?.trim()??"";if(!userId)return jsonResponse(request,{success:false,error:"User ID is required."},400);const season=await getCurrentSeason(env.DB);const result=await evaluateReferralQuality(env.DB,userId,season?.id??null);await writeAdminAudit(env.DB,auth.user.id,"referral.evaluate","user",userId,null,result,request.headers.get("cf-ray"));return jsonResponse(request,{success:true,result});}catch(error){return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to evaluate referral."},409);}}
+    if(request.method==="GET"&&url.pathname==="/admin/audit"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const admin=await getActiveAdmin(env.DB,auth.user.id);if(!admin||admin.role!=="super_admin")return jsonResponse(request,{success:false,authorized:false},403);const result=await env.DB.prepare("SELECT id,admin_user_id,action,target_type,target_id,reason,old_value,new_value,request_id,created_at FROM admin_audit_log ORDER BY created_at DESC LIMIT 100").all();return jsonResponse(request,{success:true,entries:result.results??[]});}
 
     // =========================================================
     // XP CORE

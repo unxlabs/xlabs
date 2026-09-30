@@ -10,6 +10,7 @@ const Stake = lazy(() => import("@/features/app/pages/Stake"));
 const Earn = lazy(() => import("@/features/app/pages/Earn"));
 const Genesis = lazy(() => import("@/features/app/pages/Genesis"));
 const Rewards = lazy(() => import("@/features/app/pages/Rewards"));
+const Referrals = lazy(() => import("@/features/app/pages/Referrals"));
 const History = lazy(() => import("@/features/app/pages/History"));
 const Ecosystem = lazy(() => import("@/features/app/pages/Ecosystem"));
 const Learn = lazy(() => import("@/features/app/pages/Learn"));
@@ -75,6 +76,15 @@ export default function App() {
           element={
             <Lazy>
               <Rewards />
+            </Lazy>
+          }
+        />
+
+        <Route
+          path="/app/referrals"
+          element={
+            <Lazy>
+              <Referrals />
             </Lazy>
           }
         />
