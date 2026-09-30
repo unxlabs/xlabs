@@ -277,6 +277,23 @@ interface MissionCompletionSummaryRow {
   last_completed_at: number | null;
 }
 
+interface MissionCompletionRow {
+  id: string;
+  mission_id: string;
+  user_id: string;
+  season_id: string | null;
+  period_key: string;
+  base_xp: number;
+  status: "verified" | "rewarded" | "rejected" | "reversed";
+  xp_transaction_id: string | null;
+  verification_data: string | null;
+  verified_at: number | null;
+  rewarded_at: number | null;
+  reversed_at: number | null;
+  created_at: number;
+  updated_at: number;
+}
+
 interface AuthenticatedContext {
   session: AuthSessionRow;
   user: UserRow;
@@ -883,6 +900,174 @@ function serializeMissionProgress(row: UserMissionProgressRow | null) {
     lastProgressAt: row.last_progress_at,
     lastCompletedAt: row.last_completed_at,
   };
+}
+
+
+function getUtcMissionPeriodKey(mission: MissionRow, now: number): string {
+  if (mission.repeat_type === "once") return "once";
+
+  const date = new Date(now);
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+
+  if (mission.repeat_type === "daily") return `${year}-${month}-${day}`;
+
+  if (mission.repeat_type === "weekly") {
+    const utcDate = new Date(Date.UTC(year, date.getUTCMonth(), date.getUTCDate()));
+    const weekday = utcDate.getUTCDay() || 7;
+    utcDate.setUTCDate(utcDate.getUTCDate() + 4 - weekday);
+    const isoYear = utcDate.getUTCFullYear();
+    const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+    const week = Math.ceil((((utcDate.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    return `${isoYear}-W${String(week).padStart(2, "0")}`;
+  }
+
+  throw new Error("Repeatable missions require a trusted event key.");
+}
+
+async function getMissionCompletion(
+  db: D1Database,
+  missionId: string,
+  userId: string,
+  periodKey: string,
+): Promise<MissionCompletionRow | null> {
+  return db.prepare(
+    `SELECT id, mission_id, user_id, season_id, period_key, base_xp, status,
+            xp_transaction_id, verification_data, verified_at, rewarded_at,
+            reversed_at, created_at, updated_at
+     FROM mission_completions
+     WHERE mission_id = ? AND user_id = ? AND period_key = ?
+     LIMIT 1`,
+  ).bind(missionId, userId, periodKey).first<MissionCompletionRow>();
+}
+
+async function rewardVerifiedMissionCompletion(
+  db: D1Database,
+  mission: MissionRow,
+  userId: string,
+  options: {
+    trustedEventKey?: string | null;
+    verificationData?: Record<string, unknown> | null;
+  } = {},
+): Promise<{ completion: MissionCompletionRow; award: AwardXpResult }> {
+  const now = Date.now();
+
+  if (mission.status !== "active" || !isMissionScheduledNow(mission, now)) {
+    throw new Error("Mission is not currently available.");
+  }
+  if (!mission.season_id) throw new Error("Mission is not linked to a season.");
+
+  const season = await getSeason(db, mission.season_id);
+  if (!season || !isSeasonOpen(season, now)) {
+    throw new Error("Mission season is not currently active.");
+  }
+
+  const participant = await getSeasonParticipant(db, mission.season_id, userId);
+  if (!participant || participant.status !== "active") {
+    throw new Error("User is not an active participant in this season.");
+  }
+
+  let periodKey: string;
+  if (mission.repeat_type === "repeatable") {
+    const trustedEventKey = options.trustedEventKey?.trim() || "";
+    if (!trustedEventKey) throw new Error("Repeatable missions require a trusted event key.");
+    periodKey = `event:${trustedEventKey}`;
+  } else {
+    periodKey = getUtcMissionPeriodKey(mission, now);
+  }
+
+  let completion = await getMissionCompletion(db, mission.id, userId, periodKey);
+  if (!completion) {
+    const countRow = await db.prepare(
+      `SELECT COUNT(*) AS count FROM mission_completions
+       WHERE mission_id = ? AND user_id = ? AND status IN ('verified', 'rewarded')`,
+    ).bind(mission.id, userId).first<CountRow>();
+
+    const currentCount = countRow?.count ?? 0;
+    const effectiveMax = mission.repeat_type === "once" ? 1 : mission.max_completions;
+    if (effectiveMax !== null && currentCount >= effectiveMax) {
+      throw new Error("Mission completion limit has been reached.");
+    }
+
+    const completionId = crypto.randomUUID();
+    const verificationData = options.verificationData
+      ? JSON.stringify(options.verificationData)
+      : null;
+
+    try {
+      await db.prepare(
+        `INSERT INTO mission_completions (
+           id, mission_id, user_id, season_id, period_key, base_xp, status,
+           xp_transaction_id, verification_data, verified_at, rewarded_at,
+           reversed_at, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, 'verified', NULL, ?, ?, NULL, NULL, ?, ?)`,
+      ).bind(
+        completionId, mission.id, userId, mission.season_id, periodKey,
+        mission.base_xp, verificationData, now, now, now,
+      ).run();
+    } catch (error) {
+      const raced = await getMissionCompletion(db, mission.id, userId, periodKey);
+      if (!raced) throw error;
+    }
+
+    completion = await getMissionCompletion(db, mission.id, userId, periodKey);
+    if (!completion) throw new Error("Mission completion could not be read back.");
+  }
+
+  if (completion.status === "rejected" || completion.status === "reversed") {
+    throw new Error("Mission completion is not rewardable.");
+  }
+
+  const award = await awardXp(db, {
+    userId,
+    sourceType: "mission",
+    sourceId: mission.id,
+    seasonId: mission.season_id,
+    baseXp: completion.base_xp,
+    reason: `Mission completed: ${mission.name}`,
+    idempotencyKey: `mission:${completion.id}`,
+    boostType: "xp",
+  });
+
+  const updateNow = Date.now();
+  await db.batch([
+    db.prepare(
+      `UPDATE mission_completions
+       SET status = 'rewarded', xp_transaction_id = ?,
+           rewarded_at = COALESCE(rewarded_at, ?), updated_at = ?
+       WHERE id = ? AND status IN ('verified', 'rewarded')`,
+    ).bind(award.transaction.id, updateNow, updateNow, completion.id),
+    db.prepare(
+      `INSERT INTO user_mission_progress (
+         id, mission_id, user_id, status, progress_value, target_value,
+         completion_count, first_started_at, last_progress_at,
+         last_completed_at, created_at, updated_at
+       ) VALUES (?, ?, ?, ?, 1, 1, 1, ?, ?, ?, ?, ?)
+       ON CONFLICT(mission_id, user_id) DO UPDATE SET
+         status = excluded.status,
+         progress_value = 1,
+         target_value = 1,
+         completion_count = (
+           SELECT COUNT(*) FROM mission_completions
+           WHERE mission_id = excluded.mission_id
+             AND user_id = excluded.user_id
+             AND status IN ('verified', 'rewarded')
+         ),
+         first_started_at = COALESCE(user_mission_progress.first_started_at, excluded.first_started_at),
+         last_progress_at = excluded.last_progress_at,
+         last_completed_at = excluded.last_completed_at,
+         updated_at = excluded.updated_at`,
+    ).bind(
+      crypto.randomUUID(), mission.id, userId,
+      mission.repeat_type === "once" ? "completed" : "available",
+      now, now, now, now, now,
+    ),
+  ]);
+
+  completion = await getMissionCompletion(db, mission.id, userId, periodKey);
+  if (!completion) throw new Error("Rewarded mission completion could not be read back.");
+  return { completion, award };
 }
 
 export async function awardXp(
@@ -3254,6 +3439,94 @@ export default {
       } catch (error) {
         console.error("Admin mission activation failed:", error);
         return jsonResponse(request, { success: false, error: "Unable to activate mission." }, 500);
+      }
+    }
+
+    // =========================================================
+    // MISSION COMPLETION / TRUSTED VERIFICATION
+    // Super Admin only in v2. No public client-claim endpoint.
+    // =========================================================
+
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/admin/missions/") &&
+      url.pathname.endsWith("/complete")
+    ) {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+
+        const admin = await getActiveAdmin(env.DB, auth.user.id);
+        if (!admin || admin.role !== "super_admin") {
+          return jsonResponse(request, { success: false, authenticated: true, authorized: false }, 403);
+        }
+
+        const missionId = decodeURIComponent(
+          url.pathname.slice("/admin/missions/".length, -"/complete".length),
+        ).trim();
+        if (!missionId) return jsonResponse(request, { success: false, error: "Mission ID is required." }, 400);
+
+        const mission = await getMission(env.DB, missionId);
+        if (!mission) return jsonResponse(request, { success: false, error: "Mission not found." }, 404);
+
+        let body: unknown;
+        try { body = await request.json(); }
+        catch { return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400); }
+
+        if (typeof body !== "object" || body === null) {
+          return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        }
+
+        const payload = body as Record<string, unknown>;
+        const userId = typeof payload.userId === "string" ? payload.userId.trim() : "";
+        const trustedEventKey =
+          typeof payload.trustedEventKey === "string" ? payload.trustedEventKey.trim() || null : null;
+
+        if (!userId) return jsonResponse(request, { success: false, error: "User ID is required." }, 400);
+
+        const targetUser = await env.DB.prepare(
+          `SELECT id, status FROM users WHERE id = ? LIMIT 1`,
+        ).bind(userId).first<{ id: string; status: string }>();
+
+        if (!targetUser) return jsonResponse(request, { success: false, error: "Target user not found." }, 404);
+        if (targetUser.status !== "active") {
+          return jsonResponse(request, { success: false, error: "Target user is not active." }, 409);
+        }
+
+        const result = await rewardVerifiedMissionCompletion(env.DB, mission, userId, {
+          trustedEventKey,
+          verificationData: { verifier: "super_admin", verifiedByUserId: auth.user.id },
+        });
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          authorized: true,
+          admin: { role: admin.role },
+          mission: serializeMission(mission),
+          completion: {
+            id: result.completion.id,
+            missionId: result.completion.mission_id,
+            userId: result.completion.user_id,
+            seasonId: result.completion.season_id,
+            periodKey: result.completion.period_key,
+            baseXp: result.completion.base_xp,
+            status: result.completion.status,
+            xpTransactionId: result.completion.xp_transaction_id,
+            verifiedAt: result.completion.verified_at,
+            rewardedAt: result.completion.rewarded_at,
+          },
+          award: {
+            created: result.award.created,
+            lifetimeXp: result.award.lifetimeXp,
+            seasonXp: result.award.seasonXp,
+            transaction: serializeXpTransaction(result.award.transaction),
+          },
+        }, result.award.created ? 201 : 200);
+      } catch (error) {
+        console.error("Mission completion verification failed:", error);
+        const message = error instanceof Error ? error.message : "Unable to complete mission.";
+        return jsonResponse(request, { success: false, error: message }, 409);
       }
     }
 
