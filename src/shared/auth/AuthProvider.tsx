@@ -10,6 +10,7 @@ import {
 } from "react";
 
 import { useAccount, useSignMessage } from "wagmi";
+import { stringToHex } from "viem";
 
 import {
   createAuthChallenge,
@@ -62,6 +63,7 @@ export function AuthProvider({
   const {
     address,
     isConnected,
+    connector,
   } = useAccount();
 
   const {
@@ -210,9 +212,37 @@ export function AuthProvider({
     try {
       const challengeResponse = await createAuthChallenge(address);
 
-      const signature = await signMessageAsync({
-        message: challengeResponse.challenge.message,
-      });
+      let signature: string;
+
+      if (connector) {
+        const provider = (await connector.getProvider()) as {
+          request: (args: {
+            method: string;
+            params?: readonly unknown[] | object;
+          }) => Promise<unknown>;
+        };
+
+        const providerSignature = await provider.request({
+          method: "personal_sign",
+          params: [
+            stringToHex(challengeResponse.challenge.message),
+            address,
+          ],
+        });
+
+        if (
+          typeof providerSignature !== "string" ||
+          !providerSignature.startsWith("0x")
+        ) {
+          throw new Error("Wallet returned an invalid signature.");
+        }
+
+        signature = providerSignature;
+      } else {
+        signature = await signMessageAsync({
+          message: challengeResponse.challenge.message,
+        });
+      }
 
       const verifyResponse = await verifyAuthSignature(
         challengeResponse.challenge.id,
@@ -246,6 +276,7 @@ export function AuthProvider({
     }
   }, [
     address,
+    connector,
     isConnected,
     signMessageAsync,
   ]);
