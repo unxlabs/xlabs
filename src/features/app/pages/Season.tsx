@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 
 import { useAuth } from "@/shared/auth/AuthProvider";
 import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
+import { getMyNextMove, type NextMove } from "@/shared/api/nextMove";
 import {
   getCurrentSeason,
   getMyMissions,
@@ -57,6 +58,7 @@ export default function Season() {
   const [participation, setParticipation] = useState<SeasonParticipation | null>(null);
   const [missions, setMissions] = useState<MissionRecord[]>([]);
   const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
+  const [nextMove, setNextMove] = useState<NextMove | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -67,14 +69,16 @@ export default function Season() {
 
     try {
       if (isAuthenticated) {
-        const [result, progressionResult] = await Promise.all([
+        const [result, progressionResult, nextMoveResult] = await Promise.all([
           getMyMissions(),
           getMyProgression(),
+          getMyNextMove(),
         ]);
         setSeason(result.season);
         setParticipation(result.participation);
         setMissions(result.missions);
         setProgression(progressionResult.progression);
+        setNextMove(nextMoveResult.nextMove);
       } else {
         const [seasonResult, missionResult] = await Promise.all([
           getCurrentSeason(),
@@ -84,6 +88,7 @@ export default function Season() {
         setParticipation(null);
         setMissions(missionResult.missions);
         setProgression(null);
+        setNextMove(null);
       }
     } catch (loadError) {
       setError(
@@ -296,10 +301,22 @@ export default function Season() {
 
           <div className={styles.nextMovePreview}>
             <div className={styles.nextMoveIcon}><ArrowUpRight size={20} /></div>
-            <div>
-              <span>COMING NEXT</span>
-              <strong>Your Next Move</strong>
-              <p>One clear action, selected from your verified activity and progress.</p>
+            <div className={styles.nextMoveContent}>
+              <span>YOUR NEXT MOVE</span>
+              {nextMove ? (
+                <>
+                  <strong>{nextMove.title}</strong>
+                  <p>{nextMove.description}</p>
+                  <Link className={styles.nextMoveButton} to={nextMove.href}>
+                    {nextMove.ctaLabel} <ArrowUpRight size={15} />
+                  </Link>
+                </>
+              ) : (
+                <>
+                  <strong>Keep building your progress</strong>
+                  <p>Your next verified action will appear here as your activity evolves.</p>
+                </>
+              )}
             </div>
           </div>
         </section>

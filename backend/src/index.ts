@@ -1421,6 +1421,52 @@ async function getProgressionSnapshot(db:D1Database,userId:string){
     milestones:milestones.results??[],achievements:achievements.results??[],streaks:streaks.results??[]
   };
 }
+async function getNextMoveSnapshot(db:D1Database,userId:string){
+  const now=Date.now();
+  const [season,balance,genesis,referralCounts]=await Promise.all([
+    getCurrentSeason(db),
+    getXpBalance(db,userId),
+    getGenesisOwnership(db,userId),
+    db.prepare("SELECT COUNT(*) AS total, SUM(CASE WHEN status='activated' THEN 1 ELSE 0 END) AS activated, SUM(CASE WHEN status='engaged' THEN 1 ELSE 0 END) AS engaged, SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=? AND status!='blocked'").bind(userId).first<{total:number;activated:number;engaged:number;qualified:number}>()
+  ]);
+  const lifetimeXp=balance?.lifetime_xp??0;
+  const participant=season?await getSeasonParticipant(db,season.id,userId):null;
+
+  if(season&&isSeasonOpen(season,now)&&(!participant||participant.status!=='active')){
+    return {key:'join_season',category:'season',title:`Join ${season.name}`,description:'Enter the current season so your verified activity can count toward seasonal progress.',ctaLabel:'Join season',href:'/app/season',priority:100,reason:'current_season_not_joined',verification:'backend'};
+  }
+
+  const activeMission=await db.prepare(`SELECT m.id,m.slug,m.name,m.description,m.base_xp,m.season_id
+    FROM missions m
+    WHERE m.status='active'
+      AND (m.starts_at IS NULL OR m.starts_at<=?)
+      AND (m.ends_at IS NULL OR m.ends_at>?)
+      AND (m.season_id IS NULL OR m.season_id=?)
+      AND NOT EXISTS (
+        SELECT 1 FROM mission_completions mc
+        WHERE mc.mission_id=m.id AND mc.user_id=? AND mc.status='rewarded'
+          AND (m.repeat_type!='once' OR mc.period_key='once')
+      )
+    ORDER BY m.sort_order ASC,m.created_at ASC LIMIT 1`).bind(now,now,season?.id??null,userId).first<{id:string;slug:string;name:string;description:string|null;base_xp:number;season_id:string|null}>();
+  if(activeMission){
+    return {key:'complete_mission',category:'mission',title:activeMission.name,description:activeMission.description??'Complete your next verified mission to keep building your participation history.',ctaLabel:'Continue mission',href:'/app/season',priority:90,reason:'verified_mission_available',verification:'backend',mission:{id:activeMission.id,slug:activeMission.slug,baseXp:activeMission.base_xp}};
+  }
+
+  const totalReferrals=referralCounts?.total??0;
+  if(totalReferrals===0){
+    return {key:'invite_first_participant',category:'referral',title:'Invite your first participant',description:'Start building your network. Referral rewards grow when invited users become genuinely active.',ctaLabel:'Open referrals',href:'/app/referrals',priority:70,reason:'no_referrals_yet',verification:'backend'};
+  }
+
+  if((referralCounts?.qualified??0)===0){
+    return {key:'grow_network_quality',category:'referral',title:'Grow your referral network',description:'Your network has started. Bring in another real participant while existing referrals progress through quality stages.',ctaLabel:'View referrals',href:'/app/referrals',priority:65,reason:'network_started_no_qualified_referral',verification:'backend',network:{total:totalReferrals,activated:referralCounts?.activated??0,engaged:referralCounts?.engaged??0,qualified:referralCounts?.qualified??0}};
+  }
+
+  if(!genesis||genesis.balance<=0){
+    return {key:'discover_genesis',category:'genesis',title:'Explore Genesis membership',description:'You have established activity. Review Genesis membership when you are ready for progression and referral boosts.',ctaLabel:'Explore Genesis',href:'/app/genesis',priority:50,reason:'established_user_without_genesis',verification:'onchain',optional:true};
+  }
+
+  return {key:'build_verified_activity',category:'progression',title:'Build your verified activity',description:'Keep progressing through verified missions and real ecosystem activity as new opportunities become available.',ctaLabel:'View season',href:'/app/season',priority:40,reason:'core_actions_currently_complete',verification:'backend',context:{lifetimeXp,genesisBalance:genesis.balance,totalReferrals}};
+}
 async function getSeasonRankSnapshot(db:D1Database,userId:string,seasonId:string){const me=await getSeasonParticipant(db,seasonId,userId);if(!me)return null;const higher=await db.prepare("SELECT COUNT(*) AS count FROM season_participants WHERE season_id=? AND status='active' AND (season_xp>? OR (season_xp=? AND (joined_at<? OR (joined_at=? AND user_id<?))))").bind(seasonId,me.season_xp,me.season_xp,me.joined_at,me.joined_at,userId).first<CountRow>();return {rank:(higher?.count??0)+1,seasonXp:me.season_xp};}
 async function evaluateReferralQuality(db:D1Database,referredUserId:string,seasonId:string|null){
   const relationship=await getReferralRelationshipByReferredUser(db,referredUserId);if(!relationship||relationship.status==='blocked'||relationship.status==='qualified')return {changed:false,relationship};const now=Date.now();
@@ -4183,6 +4229,7 @@ export default {
       try { const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);const [xp,genesis,progression,referral,refCounts,rewards,eligibility,campaigns]=await Promise.all([getXpBalance(env.DB,auth.user.id),getGenesisOwnership(env.DB,auth.user.id),getProgressionSnapshot(env.DB,auth.user.id),getReferralRelationshipByReferredUser(env.DB,auth.user.id),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=?").bind(auth.user.id).first<{total:number;qualified:number}>(),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='claimable' THEN 1 ELSE 0 END) AS claimable,SUM(CASE WHEN status='claimed' THEN 1 ELSE 0 END) AS claimed FROM reward_entitlements WHERE user_id=?").bind(auth.user.id).first<{total:number;claimable:number;claimed:number}>(),env.DB.prepare("SELECT e.result,e.passed_required,e.total_required,e.evaluated_at,p.key,p.name,p.program_type,p.status FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC LIMIT 10").bind(auth.user.id).all(),env.DB.prepare("SELECT cp.campaign_id,cp.status,cp.score,cp.joined_at,cp.completed_at,c.slug,c.name,c.campaign_type,c.ends_at FROM campaign_participants cp JOIN campaigns c ON c.id=cp.campaign_id WHERE cp.user_id=? ORDER BY cp.updated_at DESC LIMIT 10").bind(auth.user.id).all()]);const participant=season?await getSeasonParticipant(env.DB,season.id,auth.user.id):null;const rank=season&&participant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;return jsonResponse(request,{success:true,authenticated:true,user:{id:auth.user.id,username:auth.user.username,referralCode:auth.user.referral_code,country:auth.user.country,createdAt:auth.user.created_at},wallet:{address:getAddress(auth.wallet.address),chainId:auth.wallet.chain_id},genesis:genesis?serializeGenesisOwnership(genesis):null,xp:{lifetimeXp:xp?.lifetime_xp??0,seasonXp:participant?.season_xp??0},progression,season:season?{...serializeSeason(season),participant:participant?serializeSeasonParticipant(participant):null,rank}:null,referrals:{referredBy:referral?serializeReferralRelationship(referral):null,total:refCounts?.total??0,qualified:refCounts?.qualified??0},campaigns:campaigns.results??[],eligibility:eligibility.results??[],rewards:{total:rewards?.total??0,claimable:rewards?.claimable??0,claimed:rewards?.claimed??0}});}catch(error){console.error("Overview failed:",error);return jsonResponse(request,{success:false,error:"Unable to load account overview."},500);}
     }
     if(request.method==="GET"&&url.pathname==="/progression/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
+    if(request.method==="GET"&&url.pathname==="/next-move/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,nextMove:await getNextMoveSnapshot(env.DB,auth.user.id)});}
     if(request.method==="GET"&&url.pathname==="/leaderboard/season"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);if(!season)return jsonResponse(request,{success:true,season:null,entries:[]});const top=await env.DB.prepare("SELECT sp.user_id,u.username,sp.season_xp,sp.joined_at FROM season_participants sp JOIN users u ON u.id=sp.user_id WHERE sp.season_id=? AND sp.status='active' ORDER BY sp.season_xp DESC,sp.joined_at ASC,sp.user_id ASC LIMIT 100").bind(season.id).all();return jsonResponse(request,{success:true,season:serializeSeason(season),me:await getSeasonRankSnapshot(env.DB,auth.user.id,season.id),entries:top.results??[]});}
     if(request.method==="GET"&&url.pathname==="/campaigns"){const now=Date.now();const result=await env.DB.prepare("SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,display_config FROM campaigns WHERE visibility='public' AND status IN ('active','ended') AND (starts_at IS NULL OR starts_at<=?) ORDER BY starts_at DESC").bind(now).all();return jsonResponse(request,{success:true,campaigns:result.results??[]});}
     if(request.method==="GET"&&url.pathname==="/eligibility/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.result,e.passed_required,e.total_required,e.reason_summary,e.evaluated_at,e.frozen,p.id AS program_id,p.key,p.name,p.program_type,p.version,p.status,p.frozen_at FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,evaluations:result.results??[]});}
