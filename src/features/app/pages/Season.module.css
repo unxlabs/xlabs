@@ -45,3 +45,29 @@
 .stepItem { display: flex; align-items: center; gap: 9px; padding: 9px 10px; border-radius: 12px; background: rgba(11,13,16,.035); color: rgba(11,13,16,.55); font-size: 12px; font-weight: 850; }
 .stepDone { color: #0b0d10; background: rgba(233,248,199,.55); }
 .continueButton { min-height: 42px; margin-top: 12px; padding: 0 14px; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: #0b0d10; color: #fff; text-decoration: none; font-size: 12px; font-weight: 950; }
+
+.progressionCard { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(260px,.75fr); gap: 12px; }
+.progressionMain,.nextMovePreview { border: 1px solid rgba(0,0,0,.07); border-radius: 22px; background: rgba(255,255,255,.9); }
+.progressionMain { padding: 22px; }
+.progressionHeading { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.levelLine { display: flex; align-items: center; gap: 10px; margin-top: 5px; }
+.levelLine h2 { margin: 0; font-size: 28px; letter-spacing: -.035em; }
+.levelIcon { width: 34px; height: 34px; border-radius: 11px; display: inline-flex; align-items: center; justify-content: center; background: #e9f8c7; }
+.lifetimeXp { display: grid; gap: 3px; text-align: right; }
+.lifetimeXp span { color: rgba(11,13,16,.5); font-size: 11px; font-weight: 900; }
+.lifetimeXp strong { font-size: 22px; }
+.levelProgressRow,.levelProgressFoot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.levelProgressRow { margin-top: 22px; font-size: 12px; color: rgba(11,13,16,.58); font-weight: 800; }
+.levelProgressRow strong { color: #0b0d10; }
+.levelProgressTrack { height: 10px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: rgba(11,13,16,.07); }
+.levelProgressFill { height: 100%; border-radius: inherit; background: #0b0d10; transition: width .3s ease; }
+.levelProgressFoot { margin-top: 8px; color: rgba(11,13,16,.45); font-size: 10px; font-weight: 850; }
+.levelProgressFoot span:nth-child(2) { color: rgba(11,13,16,.72); }
+.maxLevel { margin-top: 20px; padding: 12px 14px; display: flex; align-items: center; gap: 8px; border-radius: 14px; background: #e9f8c7; font-size: 12px; font-weight: 900; }
+.nextMovePreview { padding: 20px; display: flex; gap: 13px; align-items: flex-start; background: linear-gradient(145deg,#f6f8f2,#fff); }
+.nextMoveIcon { width: 38px; height: 38px; flex: 0 0 auto; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; background: #0b0d10; color: #fff; }
+.nextMovePreview span { display: block; color: rgba(11,13,16,.42); font-size: 9px; font-weight: 1000; letter-spacing: .13em; }
+.nextMovePreview strong { display: block; margin-top: 4px; font-size: 17px; }
+.nextMovePreview p { margin: 6px 0 0; color: rgba(11,13,16,.55); font-size: 12px; line-height: 1.45; font-weight: 650; }
+@media (max-width: 900px) { .progressionCard { grid-template-columns: 1fr; } }
+@media (max-width: 620px) { .progressionHeading { align-items: flex-start; } .levelLine h2 { font-size: 24px; } .lifetimeXp strong { font-size: 18px; } .levelProgressFoot { gap: 7px; } .levelProgressFoot span:nth-child(2) { text-align: center; } }

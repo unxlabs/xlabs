@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { CheckCircle2, CircleDot, LoaderCircle, RefreshCw, Trophy, Wallet } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, CircleDot, LoaderCircle, RefreshCw, Sparkles, Trophy, Wallet } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Link } from "react-router-dom";
 
 import { useAuth } from "@/shared/auth/AuthProvider";
+import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
 import {
   getCurrentSeason,
   getMyMissions,
@@ -55,6 +56,7 @@ export default function Season() {
   const [season, setSeason] = useState<SeasonRecord | null>(null);
   const [participation, setParticipation] = useState<SeasonParticipation | null>(null);
   const [missions, setMissions] = useState<MissionRecord[]>([]);
+  const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,10 +67,14 @@ export default function Season() {
 
     try {
       if (isAuthenticated) {
-        const result = await getMyMissions();
+        const [result, progressionResult] = await Promise.all([
+          getMyMissions(),
+          getMyProgression(),
+        ]);
         setSeason(result.season);
         setParticipation(result.participation);
         setMissions(result.missions);
+        setProgression(progressionResult.progression);
       } else {
         const [seasonResult, missionResult] = await Promise.all([
           getCurrentSeason(),
@@ -77,6 +83,7 @@ export default function Season() {
         setSeason(seasonResult.season);
         setParticipation(null);
         setMissions(missionResult.missions);
+        setProgression(null);
       }
     } catch (loadError) {
       setError(
@@ -244,6 +251,59 @@ export default function Season() {
           <strong>{formatDate(season?.endsAt ?? null)}</strong>
         </div>
       </section>
+
+      {isAuthenticated && progression?.currentLevel ? (
+        <section className={styles.progressionCard}>
+          <div className={styles.progressionMain}>
+            <div className={styles.progressionHeading}>
+              <div>
+                <div className={styles.eyebrow}>YOUR PROGRESSION</div>
+                <div className={styles.levelLine}>
+                  <span className={styles.levelIcon}><Sparkles size={18} /></span>
+                  <h2>{progression.currentLevel.name}</h2>
+                </div>
+              </div>
+              <div className={styles.lifetimeXp}>
+                <span>Lifetime XP</span>
+                <strong>{progression.lifetimeXp.toLocaleString()}</strong>
+              </div>
+            </div>
+
+            {progression.nextLevel ? (
+              <>
+                <div className={styles.levelProgressRow}>
+                  <span>Progress to <strong>{progression.nextLevel.name}</strong></span>
+                  <strong>{progression.progress.progressPercent}%</strong>
+                </div>
+                <div className={styles.levelProgressTrack}>
+                  <div
+                    className={styles.levelProgressFill}
+                    style={{ width: `${progression.progress.progressPercent}%` }}
+                  />
+                </div>
+                <div className={styles.levelProgressFoot}>
+                  <span>{progression.lifetimeXp.toLocaleString()} XP</span>
+                  <span>{progression.progress.xpToNextLevel.toLocaleString()} XP to {progression.nextLevel.name}</span>
+                  <span>{progression.nextLevel.minLifetimeXp.toLocaleString()} XP</span>
+                </div>
+              </>
+            ) : (
+              <div className={styles.maxLevel}>
+                <Trophy size={18} /> You reached the highest progression level.
+              </div>
+            )}
+          </div>
+
+          <div className={styles.nextMovePreview}>
+            <div className={styles.nextMoveIcon}><ArrowUpRight size={20} /></div>
+            <div>
+              <span>COMING NEXT</span>
+              <strong>Your Next Move</strong>
+              <p>One clear action, selected from your verified activity and progress.</p>
+            </div>
+          </div>
+        </section>
+      ) : null}
 
       <section className={styles.section}>
         <div className={styles.sectionHead}>

@@ -1370,13 +1370,56 @@ async function recordTrustedActivity(db:D1Database,input:{userId:string;seasonId
 async function getProgressionSnapshot(db:D1Database,userId:string){
   const balance=await getXpBalance(db,userId),xp=balance?.lifetime_xp??0;
   const levels=(await db.prepare("SELECT id,key,name,description,min_lifetime_xp,sort_order,icon_key,benefits_config FROM progression_levels WHERE status='active' ORDER BY min_lifetime_xp ASC,sort_order ASC").all<ProgressionLevelRow>()).results??[];
-  let current:ProgressionLevelRow|null=null,next:ProgressionLevelRow|null=null; for(const level of levels){if(level.min_lifetime_xp<=xp)current=level;else{next=level;break;}}
+  let current:ProgressionLevelRow|null=null,next:ProgressionLevelRow|null=null;
+  for(const level of levels){if(level.min_lifetime_xp<=xp)current=level;else{next=level;break;}}
+  if(!current&&levels.length>0)current=levels[0];
+
+  const currentFloor=current?.min_lifetime_xp??0;
+  const nextTarget=next?.min_lifetime_xp??currentFloor;
+  const xpIntoCurrentLevel=Math.max(0,xp-currentFloor);
+  const levelXpSpan=next?Math.max(1,nextTarget-currentFloor):0;
+  const xpToNextLevel=next?Math.max(0,nextTarget-xp):0;
+  const progressPercent=next?Math.max(0,Math.min(100,Math.floor((xpIntoCurrentLevel/levelXpSpan)*100))):100;
+  const currentLevelIndex=current?levels.findIndex((level)=>level.id===current!.id):-1;
+
   const [milestones,achievements,streaks]=await Promise.all([
     db.prepare("SELECT u.id,u.milestone_id,u.season_id,u.achieved_value,u.unlocked_at,m.key,m.name,m.metric_type,m.target_value FROM user_milestone_unlocks u JOIN progression_milestones m ON m.id=u.milestone_id WHERE u.user_id=? AND u.status='unlocked' ORDER BY u.unlocked_at DESC LIMIT 50").bind(userId).all(),
     db.prepare("SELECT ua.id,ua.season_id,ua.earned_at,a.key,a.name,a.category,a.rarity,a.icon_key FROM user_achievements ua JOIN achievements a ON a.id=ua.achievement_id WHERE ua.user_id=? AND ua.status='earned' ORDER BY ua.earned_at DESC LIMIT 50").bind(userId).all(),
     db.prepare("SELECT streak_type,current_count,best_count,last_period_key,last_qualified_at,freeze_count,metadata,updated_at FROM user_streaks WHERE user_id=? ORDER BY current_count DESC").bind(userId).all()
   ]);
-  return {lifetimeXp:xp,currentLevel:current?{id:current.id,key:current.key,name:current.name,description:current.description,minLifetimeXp:current.min_lifetime_xp,benefitsConfig:safeJsonParse(current.benefits_config)}:null,nextLevel:next?{id:next.id,key:next.key,name:next.name,minLifetimeXp:next.min_lifetime_xp}:null,xpToNextLevel:next?Math.max(0,next.min_lifetime_xp-xp):0,milestones:milestones.results??[],achievements:achievements.results??[],streaks:streaks.results??[]};
+
+  return {
+    lifetimeXp:xp,
+    currentLevel:current?{
+      id:current.id,key:current.key,name:current.name,description:current.description,
+      minLifetimeXp:current.min_lifetime_xp,iconKey:current.icon_key,
+      benefitsConfig:safeJsonParse(current.benefits_config),
+      index:currentLevelIndex>=0?currentLevelIndex:0
+    }:null,
+    nextLevel:next?{
+      id:next.id,key:next.key,name:next.name,description:next.description,
+      minLifetimeXp:next.min_lifetime_xp,iconKey:next.icon_key,
+      benefitsConfig:safeJsonParse(next.benefits_config),
+      index:levels.findIndex((level)=>level.id===next!.id)
+    }:null,
+    progress:{
+      xpIntoCurrentLevel,
+      levelXpSpan,
+      xpToNextLevel,
+      progressPercent,
+      currentLevelFloor:currentFloor,
+      nextLevelTarget:next?nextTarget:null,
+      isMaxLevel:!next&&current!==null
+    },
+    levels:levels.map((level,index)=>({
+      id:level.id,key:level.key,name:level.name,description:level.description,
+      minLifetimeXp:level.min_lifetime_xp,sortOrder:level.sort_order,iconKey:level.icon_key,
+      benefitsConfig:safeJsonParse(level.benefits_config),index,
+      status:level.min_lifetime_xp<=xp?'reached':next?.id===level.id?'next':'locked'
+    })),
+    xpToNextLevel,
+    milestones:milestones.results??[],achievements:achievements.results??[],streaks:streaks.results??[]
+  };
 }
 async function getSeasonRankSnapshot(db:D1Database,userId:string,seasonId:string){const me=await getSeasonParticipant(db,seasonId,userId);if(!me)return null;const higher=await db.prepare("SELECT COUNT(*) AS count FROM season_participants WHERE season_id=? AND status='active' AND (season_xp>? OR (season_xp=? AND (joined_at<? OR (joined_at=? AND user_id<?))))").bind(seasonId,me.season_xp,me.season_xp,me.joined_at,me.joined_at,userId).first<CountRow>();return {rank:(higher?.count??0)+1,seasonXp:me.season_xp};}
 async function evaluateReferralQuality(db:D1Database,referredUserId:string,seasonId:string|null){
