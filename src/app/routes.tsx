@@ -3,6 +3,7 @@ import { Route, Routes } from "react-router-dom";
 
 import Landing from "@/features/landing/Landing";
 import AppShell from "@/features/app/layout/AppShell";
+import MissionProgressTracker from "@/features/app/missions/MissionProgressTracker";
 import PageLoader from "@/components/PageLoader/PageLoader";
 
 const Portfolio = lazy(() => import("@/features/app/pages/Portfolio"));
@@ -35,7 +36,14 @@ export default function App() {
         }
       />
 
-      <Route element={<AppShell />}>
+      <Route
+        element={
+          <>
+            <MissionProgressTracker />
+            <AppShell />
+          </>
+        }
+      >
         <Route
           path="/app"
           element={

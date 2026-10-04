@@ -294,6 +294,18 @@ interface MissionCompletionRow {
   updated_at: number;
 }
 
+interface MissionStepEvidenceRow {
+  mission_id: string;
+  user_id: string;
+  step_key: string;
+  recorded_at: number;
+}
+
+interface AppStepsMissionConfig {
+  mode: "app_steps";
+  requiredSteps: string[];
+}
+
 
 type ReferralStage = "joined" | "activated" | "engaged" | "qualified" | "blocked";
 
@@ -895,6 +907,29 @@ function isMissionScheduledNow(mission: MissionRow, now: number): boolean {
   );
 }
 
+function getAppStepsMissionConfig(mission: MissionRow): AppStepsMissionConfig | null {
+  if (mission.verification_type !== "system" || !mission.verification_config) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(mission.verification_config);
+  } catch {
+    return null;
+  }
+
+  if (typeof parsed !== "object" || parsed === null) return null;
+  const config = parsed as Record<string, unknown>;
+  if (config.mode !== "app_steps" || !Array.isArray(config.requiredSteps)) return null;
+
+  const requiredSteps = config.requiredSteps
+    .filter((step): step is string => typeof step === "string")
+    .map((step) => step.trim().toLowerCase())
+    .filter((step, index, all) => step.length > 0 && all.indexOf(step) === index);
+
+  if (requiredSteps.length === 0) return null;
+  return { mode: "app_steps", requiredSteps };
+}
+
 function serializeMission(row: MissionRow, now = Date.now()) {
   return {
     id: row.id,
@@ -904,6 +939,10 @@ function serializeMission(row: MissionRow, now = Date.now()) {
     description: row.description,
     category: row.category,
     verificationType: row.verification_type,
+    appSteps: (() => {
+      const config = getAppStepsMissionConfig(row);
+      return config ? { requiredSteps: config.requiredSteps } : null;
+    })(),
     baseXp: row.base_xp,
     status: row.status,
     repeatType: row.repeat_type,
@@ -1354,7 +1393,7 @@ async function evaluateReferralQuality(db:D1Database,referredUserId:string,seaso
   }
   return {changed:transitions.length>0,relationship:await getReferralRelationshipByReferredUser(db,referredUserId),transitions,ruleSet:{id:ruleSet.id,key:ruleSet.key,version:ruleSet.version}};
 }
-async function processMissionParticipation(db:D1Database,mission:MissionRow,userId:string,completion:MissionCompletionRow){const activityId=await recordTrustedActivity(db,{userId,seasonId:mission.season_id,eventType:'mission_completed',sourceType:'mission',sourceId:mission.id,trustLevel:'admin',occurredAt:completion.rewarded_at??Date.now(),idempotencyKey:`activity:mission:${completion.id}`,evidence:{completionId:completion.id,xpTransactionId:completion.xp_transaction_id}});return {activityId,referral:await evaluateReferralQuality(db,userId,mission.season_id)};}
+async function processMissionParticipation(db:D1Database,mission:MissionRow,userId:string,completion:MissionCompletionRow,trustLevel:TrustedActivityTrustLevel="admin"){const activityId=await recordTrustedActivity(db,{userId,seasonId:mission.season_id,eventType:'mission_completed',sourceType:'mission',sourceId:mission.id,trustLevel,occurredAt:completion.rewarded_at??Date.now(),idempotencyKey:`activity:mission:${completion.id}`,evidence:{completionId:completion.id,xpTransactionId:completion.xp_transaction_id}});return {activityId,referral:await evaluateReferralQuality(db,userId,mission.season_id)};}
 async function writeAdminAudit(db:D1Database,adminUserId:string,action:string,targetType:string,targetId:string|null,reason:string|null,newValue:unknown,requestId:string|null){await db.prepare("INSERT INTO admin_audit_log (id,admin_user_id,action,target_type,target_id,reason,old_value,new_value,request_id,created_at) VALUES (?,?,?,?,?,?,NULL,?,?,?)").bind(crypto.randomUUID(),adminUserId,action,targetType,targetId,reason,newValue===undefined?null:JSON.stringify(newValue),requestId,Date.now()).run();}
 
 export default {
@@ -3321,7 +3360,7 @@ export default {
           });
         }
 
-        const [progressResult, completionResult] = await Promise.all([
+        const [progressResult, completionResult, stepEvidenceResult] = await Promise.all([
           env.DB.prepare(
             `SELECT p.id, p.mission_id, p.user_id, p.status, p.progress_value,
                     p.target_value, p.completion_count, p.first_started_at,
@@ -3340,6 +3379,13 @@ export default {
                AND c.status IN ('verified', 'rewarded')
              GROUP BY c.mission_id`,
           ).bind(auth.user.id, season.id).all<MissionCompletionSummaryRow>(),
+          env.DB.prepare(
+            `SELECT e.mission_id, e.user_id, e.step_key, e.recorded_at
+             FROM mission_step_evidence e
+             JOIN missions m ON m.id = e.mission_id
+             WHERE e.user_id = ? AND m.season_id = ?
+             ORDER BY e.recorded_at ASC`,
+          ).bind(auth.user.id, season.id).all<MissionStepEvidenceRow>(),
         ]);
 
         const progressByMission = new Map(
@@ -3348,6 +3394,12 @@ export default {
         const completionByMission = new Map(
           (completionResult.results ?? []).map((row) => [row.mission_id, row]),
         );
+        const completedStepsByMission = new Map<string, string[]>();
+        for (const row of stepEvidenceResult.results ?? []) {
+          const current = completedStepsByMission.get(row.mission_id) ?? [];
+          if (!current.includes(row.step_key)) current.push(row.step_key);
+          completedStepsByMission.set(row.mission_id, current);
+        }
 
         return jsonResponse(request, {
           success: true,
@@ -3360,6 +3412,7 @@ export default {
             return {
               ...serializeMission(mission, now),
               progress: serializeMissionProgress(progress),
+              completedSteps: completedStepsByMission.get(mission.id) ?? [],
               verifiedCompletionCount: completion?.completion_count ?? 0,
               lastVerifiedCompletionAt: completion?.last_completed_at ?? null,
             };
@@ -3644,6 +3697,204 @@ export default {
       } catch (error) {
         console.error("Admin mission activation failed:", error);
         return jsonResponse(request, { success: false, error: "Unable to activate mission." }, 500);
+      }
+    }
+
+    // =========================================================
+    // APP-STEP MISSION PROGRESS
+    // Authenticated users may record only server-configured app steps.
+    // Step evidence never carries an XP amount or completion status.
+    // The existing mission reward engine is invoked only after every
+    // distinct configured step has been recorded.
+    // =========================================================
+
+    if (
+      request.method === "POST" &&
+      url.pathname.startsWith("/missions/") &&
+      url.pathname.endsWith("/progress")
+    ) {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+
+        const missionId = decodeURIComponent(
+          url.pathname.slice("/missions/".length, -"/progress".length),
+        ).trim();
+        if (!missionId) return jsonResponse(request, { success: false, error: "Mission ID is required." }, 400);
+
+        const mission = await getMission(env.DB, missionId);
+        if (!mission) return jsonResponse(request, { success: false, error: "Mission not found." }, 404);
+
+        const now = Date.now();
+        if (mission.status !== "active" || !isMissionScheduledNow(mission, now)) {
+          return jsonResponse(request, { success: false, error: "Mission is not currently available." }, 409);
+        }
+        if (!mission.season_id) {
+          return jsonResponse(request, { success: false, error: "Mission is not linked to a season." }, 409);
+        }
+
+        const season = await getSeason(env.DB, mission.season_id);
+        if (!season || !isSeasonOpen(season, now)) {
+          return jsonResponse(request, { success: false, error: "Mission season is not currently active." }, 409);
+        }
+
+        const participant = await getSeasonParticipant(env.DB, mission.season_id, auth.user.id);
+        if (!participant || participant.status !== "active") {
+          return jsonResponse(request, { success: false, error: "Join the active season before progressing this mission." }, 409);
+        }
+
+        const config = getAppStepsMissionConfig(mission);
+        if (!config) {
+          return jsonResponse(request, { success: false, error: "This mission does not accept app-step progress." }, 409);
+        }
+
+        let body: unknown;
+        try { body = await request.json(); }
+        catch { return jsonResponse(request, { success: false, error: "Invalid JSON body." }, 400); }
+
+        if (typeof body !== "object" || body === null) {
+          return jsonResponse(request, { success: false, error: "Invalid request body." }, 400);
+        }
+
+        const payload = body as Record<string, unknown>;
+        const stepKey = typeof payload.stepKey === "string" ? payload.stepKey.trim().toLowerCase() : "";
+        if (!stepKey || !config.requiredSteps.includes(stepKey)) {
+          return jsonResponse(request, { success: false, error: "Step is not valid for this mission." }, 400);
+        }
+
+        await env.DB.prepare(
+          `INSERT OR IGNORE INTO mission_step_evidence (
+             id, mission_id, user_id, season_id, step_key, source_type, evidence, recorded_at, created_at
+           ) VALUES (?, ?, ?, ?, ?, 'app', ?, ?, ?)`,
+        ).bind(
+          crypto.randomUUID(), mission.id, auth.user.id, mission.season_id, stepKey,
+          JSON.stringify({ kind: "authenticated_app_step" }), now, now,
+        ).run();
+
+        const evidenceResult = await env.DB.prepare(
+          `SELECT mission_id, user_id, step_key, recorded_at
+           FROM mission_step_evidence
+           WHERE mission_id = ? AND user_id = ?
+           ORDER BY recorded_at ASC`,
+        ).bind(mission.id, auth.user.id).all<MissionStepEvidenceRow>();
+
+        const completedSteps = config.requiredSteps.filter((requiredStep) =>
+          (evidenceResult.results ?? []).some((row) => row.step_key === requiredStep),
+        );
+        const progressValue = completedSteps.length;
+        const targetValue = config.requiredSteps.length;
+        const complete = progressValue >= targetValue;
+
+        if (!complete) {
+          await env.DB.prepare(
+            `INSERT INTO user_mission_progress (
+               id, mission_id, user_id, status, progress_value, target_value,
+               completion_count, first_started_at, last_progress_at,
+               last_completed_at, created_at, updated_at
+             ) VALUES (?, ?, ?, 'in_progress', ?, ?, 0, ?, ?, NULL, ?, ?)
+             ON CONFLICT(mission_id, user_id) DO UPDATE SET
+               status = CASE WHEN user_mission_progress.status = 'completed' THEN 'completed' ELSE 'in_progress' END,
+               progress_value = MAX(user_mission_progress.progress_value, excluded.progress_value),
+               target_value = excluded.target_value,
+               first_started_at = COALESCE(user_mission_progress.first_started_at, excluded.first_started_at),
+               last_progress_at = excluded.last_progress_at,
+               updated_at = excluded.updated_at`,
+          ).bind(
+            crypto.randomUUID(), mission.id, auth.user.id, progressValue, targetValue,
+            now, now, now, now,
+          ).run();
+
+          return jsonResponse(request, {
+            success: true,
+            authenticated: true,
+            mission: serializeMission(mission, now),
+            progress: {
+              status: "in_progress",
+              progressValue,
+              targetValue,
+              completedSteps,
+              requiredSteps: config.requiredSteps,
+            },
+            completed: false,
+            award: null,
+          });
+        }
+
+        const result = await rewardVerifiedMissionCompletion(env.DB, mission, auth.user.id, {
+          verificationData: {
+            verifier: "system",
+            mode: "app_steps",
+            completedSteps,
+          },
+        });
+        const participation = await processMissionParticipation(
+          env.DB, mission, auth.user.id, result.completion, "system",
+        );
+
+        const completedAt = result.completion.rewarded_at ?? Date.now();
+        await env.DB.prepare(
+          `INSERT INTO user_mission_progress (
+             id, mission_id, user_id, status, progress_value, target_value,
+             completion_count, first_started_at, last_progress_at,
+             last_completed_at, created_at, updated_at
+           ) VALUES (?, ?, ?, 'completed', ?, ?, 1, ?, ?, ?, ?, ?)
+           ON CONFLICT(mission_id, user_id) DO UPDATE SET
+             status = 'completed',
+             progress_value = excluded.progress_value,
+             target_value = excluded.target_value,
+             completion_count = (
+               SELECT COUNT(*) FROM mission_completions
+               WHERE mission_id = excluded.mission_id
+                 AND user_id = excluded.user_id
+                 AND status IN ('verified', 'rewarded')
+             ),
+             first_started_at = COALESCE(user_mission_progress.first_started_at, excluded.first_started_at),
+             last_progress_at = excluded.last_progress_at,
+             last_completed_at = COALESCE(user_mission_progress.last_completed_at, excluded.last_completed_at),
+             updated_at = excluded.updated_at`,
+        ).bind(
+          crypto.randomUUID(), mission.id, auth.user.id, targetValue, targetValue,
+          now, completedAt, completedAt, now, completedAt,
+        ).run();
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          mission: serializeMission(mission, now),
+          progress: {
+            status: "completed",
+            progressValue: targetValue,
+            targetValue,
+            completedSteps,
+            requiredSteps: config.requiredSteps,
+          },
+          completed: true,
+          completion: {
+            id: result.completion.id,
+            status: result.completion.status,
+            rewardedAt: result.completion.rewarded_at,
+          },
+          award: {
+            transactionId: result.award.transaction.id,
+            baseXp: result.award.transaction.base_xp,
+            boostXp: result.award.transaction.boost_xp,
+            totalXp: result.award.transaction.total_xp,
+            created: result.award.created,
+          },
+          participation,
+        });
+      } catch (error) {
+        console.error("Mission app-step progress failed:", error);
+        const message = error instanceof Error ? error.message : "Unable to record mission progress.";
+        const expected = new Set([
+          "Mission is not currently available.",
+          "Mission is not linked to a season.",
+          "Mission season is not currently active.",
+          "User is not an active participant in this season.",
+          "Mission completion limit has been reached.",
+          "Mission completion is not rewardable.",
+        ]);
+        return jsonResponse(request, { success: false, error: expected.has(message) ? message : "Unable to record mission progress." }, expected.has(message) ? 409 : 500);
       }
     }
 

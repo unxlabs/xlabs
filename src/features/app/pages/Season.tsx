@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CheckCircle2, CircleDot, LoaderCircle, RefreshCw, Trophy, Wallet } from "lucide-react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { Link } from "react-router-dom";
 
 import { useAuth } from "@/shared/auth/AuthProvider";
 import {
@@ -29,6 +30,17 @@ function missionState(mission: MissionRecord) {
   if (completed) return "Verified";
   if (!mission.availableNow) return "Unavailable";
   return "Available";
+}
+
+const STEP_META: Record<string, { label: string; to: string }> = {
+  portfolio: { label: "Portfolio", to: "/app" },
+  earn: { label: "Earn", to: "/app/earn" },
+  stake: { label: "Stake", to: "/app/stake" },
+  genesis: { label: "Genesis Pass", to: "/app/genesis" },
+};
+
+function stepMeta(stepKey: string) {
+  return STEP_META[stepKey] ?? { label: stepKey, to: "/app/season" };
 }
 
 export default function Season() {
@@ -260,35 +272,44 @@ export default function Season() {
                 <article className={styles.missionCard} key={mission.id}>
                   <div className={styles.missionTop}>
                     <span className={styles.category}>{mission.category}</span>
-                    <span
-                      className={`${styles.state} ${verified ? styles.verified : ""}`}
-                    >
-                      {state}
-                    </span>
+                    <span className={`${styles.state} ${verified ? styles.verified : ""}`}>{state}</span>
                   </div>
-
                   <h3>{mission.name}</h3>
-                  <p>
-                    {mission.description ||
-                      "Complete this mission to build your season progress."}
-                  </p>
+                  <p>{mission.description || "Complete this mission to build your season progress."}</p>
 
                   <div className={styles.missionMeta}>
-                    <span>
-                      <Trophy size={16} /> {mission.baseXp} base XP
-                    </span>
+                    <span><Trophy size={16} /> {mission.baseXp} base XP</span>
                     <span>{mission.repeatType}</span>
                   </div>
 
-                  {isAuthenticated ? (
-                    <div className={styles.progressRow}>
-                      <span>Verified completions</span>
-                      <strong>{mission.verifiedCompletionCount ?? 0}</strong>
-                    </div>
+                  {isAuthenticated && mission.appSteps?.requiredSteps?.length ? (() => {
+                    const required = mission.appSteps.requiredSteps;
+                    const completed = new Set(mission.completedSteps ?? []);
+                    const done = verified ? required.length : required.filter((step) => completed.has(step)).length;
+                    const percent = required.length ? Math.round((done / required.length) * 100) : 0;
+                    const nextStep = required.find((step) => !completed.has(step));
+                    return (
+                      <div className={styles.stepBlock}>
+                        <div className={styles.progressRow}><span>Mission progress</span><strong>{done}/{required.length}</strong></div>
+                        <div className={styles.progressTrack}><div className={styles.progressFill} style={{ width: `${percent}%` }} /></div>
+                        <div className={styles.stepList}>
+                          {required.map((step) => { const meta=stepMeta(step); const doneStep=verified || completed.has(step); return (
+                            <div className={`${styles.stepItem} ${doneStep ? styles.stepDone : ""}`} key={step}>
+                              {doneStep ? <CheckCircle2 size={17} /> : <CircleDot size={17} />}<span>{meta.label}</span>
+                            </div>
+                          ); })}
+                        </div>
+                        {!verified && nextStep && participation?.status === "active" ? (
+                          <Link className={styles.continueButton} to={stepMeta(nextStep).to}>Continue: {stepMeta(nextStep).label} →</Link>
+                        ) : null}
+                      </div>
+                    );
+                  })() : isAuthenticated ? (
+                    <div className={styles.progressRow}><span>Verified completions</span><strong>{mission.verifiedCompletionCount ?? 0}</strong></div>
                   ) : null}
 
                   <div className={styles.verificationNote}>
-                    XP is awarded after the mission is verified.
+                    {verified ? "Mission verified. XP has been awarded." : "XP is awarded after the mission is verified."}
                   </div>
                 </article>
               );
