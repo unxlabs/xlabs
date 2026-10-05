@@ -1414,11 +1414,26 @@ async function seasonForOnchainActivity(db: D1Database, userId: string, occurred
   return season.id;
 }
 
+function getUtcIsoWeekKey(now: number): string {
+  const date = new Date(now);
+  const utcDate = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const weekday = utcDate.getUTCDay() || 7;
+  utcDate.setUTCDate(utcDate.getUTCDate() + 4 - weekday);
+  const isoYear = utcDate.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(isoYear, 0, 1));
+  const week = Math.ceil((((utcDate.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+  return `${isoYear}-W${String(week).padStart(2, "0")}`;
+}
+
 async function syncOnchainActivity(db: D1Database, rpcUrl: string, userId: string, walletAddressRaw: string) {
   const client = createPublicClient({ transport: http(rpcUrl) });
   const walletAddress = getAddress(walletAddressRaw);
   const walletLower = walletAddress.toLowerCase();
+  const scanNow = Date.now();
+  const weekKey = getUtcIsoWeekKey(scanNow);
   const recorded: Array<{ id: string; eventType: string; product: string; positionId: string; status: number }> = [];
+  const activeEarnPositions: Array<Record<string, unknown>> = [];
+  const activeStakePositions: Array<Record<string, unknown>> = [];
 
   for (const vault of EARN_VAULTS) {
     const ids = await client.readContract({ address: vault.address, abi: EARN_ACTIVITY_ABI, functionName: "getUserPositionIds", args: [walletAddress] });
@@ -1428,16 +1443,23 @@ async function syncOnchainActivity(db: D1Database, rpcUrl: string, userId: strin
       const createdAt = chainSecondsToMs(position.createdAt);
       const seasonId = await seasonForOnchainActivity(db, userId, createdAt);
       const sourceId = `earn:${vault.address.toLowerCase()}:${position.id.toString()}`;
-      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: vault.address.toLowerCase(), product: vault.key, positionId: position.id.toString(), principal: position.principal.toString(), status: Number(position.status), createdAt, withdrawalRequestedAt: chainSecondsToMs(position.withdrawalRequestedAt), fundedAt: chainSecondsToMs(position.fundedAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), withdrawalFunded: position.withdrawalFunded.toString() };
+      const status = Number(position.status);
+      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: vault.address.toLowerCase(), product: vault.key, positionId: position.id.toString(), principal: position.principal.toString(), status, createdAt, withdrawalRequestedAt: chainSecondsToMs(position.withdrawalRequestedAt), fundedAt: chainSecondsToMs(position.fundedAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), withdrawalFunded: position.withdrawalFunded.toString() };
       const states: Array<{ eventType: string; at: number | null; enabled: boolean }> = [
         { eventType: "earn_deposit", at: createdAt, enabled: createdAt !== null },
         { eventType: "earn_withdrawal_requested", at: chainSecondsToMs(position.withdrawalRequestedAt), enabled: position.withdrawalRequestedAt > 0n },
-        { eventType: "earn_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || Number(position.status) === 4 },
+        { eventType: "earn_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || status === 4 },
       ];
       for (const state of states) if (state.enabled) {
-        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "earn_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? Date.now(), idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
-        recorded.push({ id, eventType: state.eventType, product: vault.key, positionId: position.id.toString(), status: Number(position.status) });
+        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "earn_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? scanNow, idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
+        recorded.push({ id, eventType: state.eventType, product: vault.key, positionId: position.id.toString(), status });
       }
+
+      // Weekly participation is based on CURRENT on-chain state, not an old deposit event.
+      // Conservative active rule: principal remains positive, position is in active status (1),
+      // and no withdrawal request/withdrawal has been recorded on-chain.
+      const isCurrentlyActive = position.principal > 0n && status === 1 && position.withdrawalRequestedAt === 0n && position.withdrawnAt === 0n;
+      if (isCurrentlyActive) activeEarnPositions.push(evidence);
     }
   }
 
@@ -1449,28 +1471,167 @@ async function syncOnchainActivity(db: D1Database, rpcUrl: string, userId: strin
       const createdAt = chainSecondsToMs(position.createdAt);
       const seasonId = await seasonForOnchainActivity(db, userId, createdAt);
       const sourceId = `stake:${staking.address.toLowerCase()}:${position.id.toString()}`;
-      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: staking.address.toLowerCase(), product: staking.key, positionId: position.id.toString(), poolId: position.poolId.toString(), principal: position.principal.toString(), status: Number(position.status), createdAt, lockStartedAt: chainSecondsToMs(position.lockStartedAt), lockEndsAt: chainSecondsToMs(position.lockEndsAt), unlockRequestedAt: chainSecondsToMs(position.unlockRequestedAt), claimableAt: chainSecondsToMs(position.claimableAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), fundedForWithdrawal: position.fundedForWithdrawal.toString() };
+      const status = Number(position.status);
+      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: staking.address.toLowerCase(), product: staking.key, positionId: position.id.toString(), poolId: position.poolId.toString(), principal: position.principal.toString(), status, createdAt, lockStartedAt: chainSecondsToMs(position.lockStartedAt), lockEndsAt: chainSecondsToMs(position.lockEndsAt), unlockRequestedAt: chainSecondsToMs(position.unlockRequestedAt), claimableAt: chainSecondsToMs(position.claimableAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), fundedForWithdrawal: position.fundedForWithdrawal.toString() };
       const states: Array<{ eventType: string; at: number | null; enabled: boolean }> = [
         { eventType: "stake_deposit", at: createdAt, enabled: createdAt !== null },
         { eventType: "stake_unlock_requested", at: chainSecondsToMs(position.unlockRequestedAt), enabled: position.unlockRequestedAt > 0n },
-        { eventType: "stake_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || Number(position.status) === 4 },
+        { eventType: "stake_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || status === 4 },
       ];
       for (const state of states) if (state.enabled) {
-        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "stake_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? Date.now(), idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
-        recorded.push({ id, eventType: state.eventType, product: staking.key, positionId: position.id.toString(), status: Number(position.status) });
+        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "stake_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? scanNow, idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
+        recorded.push({ id, eventType: state.eventType, product: staking.key, positionId: position.id.toString(), status });
       }
+
+      // An unlock request means the position is leaving active participation even if funds
+      // have not been withdrawn yet. This prevents weekly XP after commitment has ended.
+      const isCurrentlyActive = position.principal > 0n && status === 1 && position.unlockRequestedAt === 0n && position.withdrawnAt === 0n;
+      if (isCurrentlyActive) activeStakePositions.push(evidence);
     }
   }
 
-  return { walletAddress, scannedAt: Date.now(), recorded };
+  const currentSeason = await getCurrentSeason(db);
+  const currentParticipant = currentSeason ? await getSeasonParticipant(db, currentSeason.id, userId) : null;
+  const participationSeasonId = currentSeason && isSeasonOpen(currentSeason, scanNow) && currentParticipant?.status === "active"
+    ? currentSeason.id
+    : null;
+
+  const weeklyParticipation: {
+    weekKey: string;
+    activeEarn: { qualified: boolean; activityId: string | null; positionCount: number };
+    activeStake: { qualified: boolean; activityId: string | null; positionCount: number };
+  } = {
+    weekKey,
+    activeEarn: { qualified: activeEarnPositions.length > 0, activityId: null, positionCount: activeEarnPositions.length },
+    activeStake: { qualified: activeStakePositions.length > 0, activityId: null, positionCount: activeStakePositions.length },
+  };
+
+  if (activeEarnPositions.length > 0) {
+    weeklyParticipation.activeEarn.activityId = await recordTrustedActivity(db, {
+      userId,
+      seasonId: participationSeasonId,
+      eventType: "weekly_active_earn",
+      sourceType: "onchain",
+      sourceId: `weekly:earn:${weekKey}`,
+      trustLevel: "onchain",
+      occurredAt: scanNow,
+      idempotencyKey: `activity:onchain:${userId}:weekly_active_earn:${weekKey}`,
+      evidence: {
+        chainId: AUTH_CHAIN_ID,
+        walletAddress: walletLower,
+        weekKey,
+        positionCount: activeEarnPositions.length,
+        positions: activeEarnPositions,
+      },
+      metadata: { qualification: "current_onchain_state", rewardScope: "one_per_week" },
+    });
+  }
+
+  if (activeStakePositions.length > 0) {
+    weeklyParticipation.activeStake.activityId = await recordTrustedActivity(db, {
+      userId,
+      seasonId: participationSeasonId,
+      eventType: "weekly_active_stake",
+      sourceType: "onchain",
+      sourceId: `weekly:stake:${weekKey}`,
+      trustLevel: "onchain",
+      occurredAt: scanNow,
+      idempotencyKey: `activity:onchain:${userId}:weekly_active_stake:${weekKey}`,
+      evidence: {
+        chainId: AUTH_CHAIN_ID,
+        walletAddress: walletLower,
+        weekKey,
+        positionCount: activeStakePositions.length,
+        positions: activeStakePositions,
+      },
+      metadata: { qualification: "current_onchain_state", rewardScope: "one_per_week" },
+    });
+  }
+
+  return { walletAddress, scannedAt: scanNow, recorded, weeklyParticipation };
 }
 
 
 interface TrustedActivityMissionConfig {
-  mode?: string;
+  mode?: "trusted_activity" | "trusted_activity_all" | string;
   eventType?: string;
+  requiredEventTypes?: string[];
   sourceType?: string;
   activityTiming?: "any" | "during_season" | "after_mission_start";
+}
+
+interface TrustedActivityEventRow {
+  id: string;
+  season_id: string | null;
+  event_type: string;
+  source_type: string;
+  source_id: string | null;
+  trust_level: TrustedActivityTrustLevel;
+  occurred_at: number;
+  evidence: string | null;
+  metadata: string | null;
+  created_at: number;
+}
+
+function getUtcWeekBounds(now: number): { start: number; end: number } {
+  const date = new Date(now);
+  const day = date.getUTCDay() || 7;
+  const start = Date.UTC(
+    date.getUTCFullYear(),
+    date.getUTCMonth(),
+    date.getUTCDate() - day + 1,
+    0, 0, 0, 0,
+  );
+  return { start, end: start + 7 * 24 * 60 * 60 * 1000 };
+}
+
+async function findTrustedMissionActivity(
+  db: D1Database,
+  userId: string,
+  mission: MissionRow,
+  eventType: string,
+  sourceType: string,
+  activityTiming: "any" | "during_season" | "after_mission_start",
+): Promise<TrustedActivityEventRow | null> {
+  let timingSql = "";
+  const timingBindings: Array<string | number> = [];
+
+  if (activityTiming === "during_season") {
+    if (!mission.season_id) return null;
+    const season = await getSeason(db, mission.season_id);
+    if (!season) return null;
+    if (season.starts_at !== null) {
+      timingSql += " AND occurred_at >= ?";
+      timingBindings.push(season.starts_at);
+    }
+    if (season.ends_at !== null) {
+      timingSql += " AND occurred_at < ?";
+      timingBindings.push(season.ends_at);
+    }
+  } else if (activityTiming === "after_mission_start") {
+    timingSql += " AND occurred_at >= ?";
+    timingBindings.push(mission.starts_at ?? mission.created_at);
+  }
+
+  // Weekly missions must be backed by evidence from the current UTC week.
+  // This prevents an old weekly_active_* event from rewarding future weeks
+  // after the user has stopped participating.
+  if (mission.repeat_type === "weekly") {
+    const week = getUtcWeekBounds(Date.now());
+    timingSql += " AND occurred_at >= ? AND occurred_at < ?";
+    timingBindings.push(week.start, week.end);
+  }
+
+  return db.prepare(
+    `SELECT id,season_id,event_type,source_type,source_id,trust_level,occurred_at,evidence,metadata,created_at
+     FROM trusted_activity_events
+     WHERE user_id=?
+       AND event_type=?
+       AND source_type=?
+       AND trust_level IN ('onchain','backend','admin','system')${timingSql}
+     ORDER BY occurred_at ASC, created_at ASC
+     LIMIT 1`,
+  ).bind(userId, eventType, sourceType, ...timingBindings).first<TrustedActivityEventRow>();
 }
 
 async function verifyTrustedActivityMissions(db: D1Database, userId: string) {
@@ -1488,73 +1649,95 @@ async function verifyTrustedActivityMissions(db: D1Database, userId: string) {
     slug: string;
     completionId: string;
     activityId: string;
+    activityIds: string[];
     xpTransactionId: string | null;
     totalXp: number;
+    newlyCompleted: boolean;
+    rewardCreated: boolean;
   }> = [];
 
   for (const mission of missions) {
     const config = safeJsonParse(mission.verification_config) as TrustedActivityMissionConfig | null;
-    if (!config || config.mode !== 'trusted_activity' || !config.eventType) continue;
-    const sourceType = config.sourceType ?? 'onchain';
-    const activityTiming = config.activityTiming ?? 'any';
+    if (!config) continue;
 
-    let timingSql = '';
-    const timingBindings: Array<string | number> = [];
+    const sourceType = config.sourceType ?? "onchain";
+    const activityTiming = config.activityTiming ?? "any";
+    let activities: TrustedActivityEventRow[] = [];
 
-    if (activityTiming === 'during_season') {
-      if (!mission.season_id) continue;
-      const season = await getSeason(db, mission.season_id);
-      if (!season) continue;
-      if (season.starts_at !== null) {
-        timingSql += ' AND occurred_at >= ?';
-        timingBindings.push(season.starts_at);
+    if (config.mode === "trusted_activity" && config.eventType) {
+      const activity = await findTrustedMissionActivity(
+        db, userId, mission, config.eventType, sourceType, activityTiming,
+      );
+      if (!activity) continue;
+      activities = [activity];
+    } else if (config.mode === "trusted_activity_all" && Array.isArray(config.requiredEventTypes)) {
+      const requiredEventTypes = config.requiredEventTypes
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter((value, index, all) => value.length > 0 && all.indexOf(value) === index);
+
+      if (requiredEventTypes.length < 2) continue;
+
+      for (const eventType of requiredEventTypes) {
+        const activity = await findTrustedMissionActivity(
+          db, userId, mission, eventType, sourceType, activityTiming,
+        );
+        if (!activity) {
+          activities = [];
+          break;
+        }
+        activities.push(activity);
       }
-      if (season.ends_at !== null) {
-        timingSql += ' AND occurred_at < ?';
-        timingBindings.push(season.ends_at);
-      }
-    } else if (activityTiming === 'after_mission_start') {
-      timingSql += ' AND occurred_at >= ?';
-      timingBindings.push(mission.starts_at ?? mission.created_at);
+      if (activities.length !== requiredEventTypes.length) continue;
+    } else {
+      continue;
     }
 
-    const activity = await db.prepare(
-      `SELECT id,season_id,event_type,source_type,source_id,trust_level,occurred_at,evidence,metadata,created_at
-       FROM trusted_activity_events
-       WHERE user_id=?
-         AND event_type=?
-         AND source_type=?
-         AND trust_level IN ('onchain','backend','admin','system')${timingSql}
-       ORDER BY occurred_at ASC, created_at ASC
-       LIMIT 1`,
-    ).bind(userId, config.eventType, sourceType, ...timingBindings).first<{
-      id:string; season_id:string|null; event_type:string; source_type:string; source_id:string|null;
-      trust_level:TrustedActivityTrustLevel; occurred_at:number; evidence:string|null; metadata:string|null; created_at:number;
-    }>();
-
-    if (!activity) continue;
+    const primaryActivity = activities[0];
+    const existingBefore = await getMissionCompletion(
+      db,
+      mission.id,
+      userId,
+      mission.repeat_type === "once" ? "once" :
+        mission.repeat_type === "weekly" ? getUtcMissionPeriodKey(mission, Date.now()) :
+        mission.repeat_type === "daily" ? getUtcMissionPeriodKey(mission, Date.now()) :
+        `event:${primaryActivity.id}`,
+    );
 
     const result = await rewardVerifiedMissionCompletion(db, mission, userId, {
-      trustedEventKey: activity.id,
+      trustedEventKey: primaryActivity.id,
       verificationData: {
-        mode: 'trusted_activity',
-        activityId: activity.id,
-        eventType: activity.event_type,
-        sourceType: activity.source_type,
-        sourceId: activity.source_id,
-        trustLevel: activity.trust_level,
-        occurredAt: activity.occurred_at,
+        mode: config.mode,
+        activityIds: activities.map((activity) => activity.id),
+        events: activities.map((activity) => ({
+          activityId: activity.id,
+          eventType: activity.event_type,
+          sourceType: activity.source_type,
+          sourceId: activity.source_id,
+          trustLevel: activity.trust_level,
+          occurredAt: activity.occurred_at,
+        })),
       },
     });
 
-    await processMissionParticipation(db, mission, userId, result.completion, activity.trust_level);
+    await processMissionParticipation(
+      db,
+      mission,
+      userId,
+      result.completion,
+      primaryActivity.trust_level,
+    );
+
     completed.push({
       missionId: mission.id,
       slug: mission.slug,
       completionId: result.completion.id,
-      activityId: activity.id,
+      activityId: primaryActivity.id,
+      activityIds: activities.map((activity) => activity.id),
       xpTransactionId: result.completion.xp_transaction_id,
       totalXp: result.award.transaction.total_xp,
+      newlyCompleted: existingBefore === null,
+      rewardCreated: result.award.created,
     });
   }
 
