@@ -15,6 +15,40 @@ export interface ProgressionLevel {
   status?: "reached" | "next" | "locked";
 }
 
+export interface ProgressionMilestone {
+  id: string;
+  milestone_id: string;
+  season_id: string | null;
+  achieved_value: number;
+  unlocked_at: number;
+  key: string;
+  name: string;
+  metric_type: string;
+  target_value: number;
+}
+
+export interface ProgressionAchievement {
+  id: string;
+  season_id: string | null;
+  earned_at: number;
+  key: string;
+  name: string;
+  category: string;
+  rarity: "common" | "uncommon" | "rare" | "epic" | "legendary" | string;
+  icon_key: string | null;
+}
+
+export interface ProgressionStreak {
+  streak_type: string;
+  current_count: number;
+  best_count: number;
+  last_period_key: string | null;
+  last_qualified_at: number | null;
+  freeze_count: number;
+  metadata: string | null;
+  updated_at: number;
+}
+
 export interface ProgressionSnapshot {
   lifetimeXp: number;
   currentLevel: ProgressionLevel | null;
@@ -30,9 +64,9 @@ export interface ProgressionSnapshot {
   };
   levels: ProgressionLevel[];
   xpToNextLevel: number;
-  milestones: unknown[];
-  achievements: unknown[];
-  streaks: unknown[];
+  milestones: ProgressionMilestone[];
+  achievements: ProgressionAchievement[];
+  streaks: ProgressionStreak[];
 }
 
 interface ProgressionResponse {

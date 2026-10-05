@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Navigate, Route, Routes } from "react-router-dom";
 
 import Landing from "@/features/landing/Landing";
 import AppShell from "@/features/app/layout/AppShell";
@@ -12,7 +12,7 @@ const Earn = lazy(() => import("@/features/app/pages/Earn"));
 const Genesis = lazy(() => import("@/features/app/pages/Genesis"));
 const Rewards = lazy(() => import("@/features/app/pages/Rewards"));
 const Referrals = lazy(() => import("@/features/app/pages/Referrals"));
-const Season = lazy(() => import("@/features/app/pages/Season"));
+const Airdrop = lazy(() => import("@/features/app/pages/Season"));
 const History = lazy(() => import("@/features/app/pages/History"));
 const Ecosystem = lazy(() => import("@/features/app/pages/Ecosystem"));
 const Learn = lazy(() => import("@/features/app/pages/Learn"));
@@ -44,95 +44,17 @@ export default function App() {
           </>
         }
       >
-        <Route
-          path="/app"
-          element={
-            <Lazy>
-              <Portfolio />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/stake"
-          element={
-            <Lazy>
-              <Stake />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/earn"
-          element={
-            <Lazy>
-              <Earn />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/genesis"
-          element={
-            <Lazy>
-              <Genesis />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/rewards"
-          element={
-            <Lazy>
-              <Rewards />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/referrals"
-          element={
-            <Lazy>
-              <Referrals />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/season"
-          element={
-            <Lazy>
-              <Season />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/history"
-          element={
-            <Lazy>
-              <History />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/ecosystem"
-          element={
-            <Lazy>
-              <Ecosystem />
-            </Lazy>
-          }
-        />
-
-        <Route
-          path="/app/learn"
-          element={
-            <Lazy>
-              <Learn />
-            </Lazy>
-          }
-        />
+        <Route path="/app" element={<Lazy><Portfolio /></Lazy>} />
+        <Route path="/app/stake" element={<Lazy><Stake /></Lazy>} />
+        <Route path="/app/earn" element={<Lazy><Earn /></Lazy>} />
+        <Route path="/app/genesis" element={<Lazy><Genesis /></Lazy>} />
+        <Route path="/app/rewards" element={<Lazy><Rewards /></Lazy>} />
+        <Route path="/app/referrals" element={<Lazy><Referrals /></Lazy>} />
+        <Route path="/app/airdrop" element={<Lazy><Airdrop /></Lazy>} />
+        <Route path="/app/season" element={<Navigate to="/app/airdrop" replace />} />
+        <Route path="/app/history" element={<Lazy><History /></Lazy>} />
+        <Route path="/app/ecosystem" element={<Lazy><Ecosystem /></Lazy>} />
+        <Route path="/app/learn" element={<Lazy><Learn /></Lazy>} />
       </Route>
     </Routes>
   );

@@ -31,8 +31,8 @@ export const APP_LINKS: NavItem[] = [
     kind: "internal",
   },
   {
-    label: "Season",
-    to: "/app/season",
+    label: "Airdrop",
+    to: "/app/airdrop",
     kind: "internal",
   },
   {
