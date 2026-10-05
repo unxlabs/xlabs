@@ -1744,6 +1744,242 @@ async function verifyTrustedActivityMissions(db: D1Database, userId: string) {
   return completed;
 }
 
+
+interface ProgressionMilestoneRow {
+  id: string;
+  season_id: string | null;
+  key: string;
+  name: string;
+  description: string | null;
+  metric_type: "lifetime_xp" | "season_xp" | "missions_completed" | "qualified_referrals" | "genesis_balance" | "campaigns_completed" | "custom";
+  target_value: number;
+  requirements_config: string | null;
+  reward_config: string | null;
+  status: string;
+  sort_order: number;
+  starts_at: number | null;
+  ends_at: number | null;
+}
+
+interface AchievementDefinitionRow {
+  id: string;
+  key: string;
+  name: string;
+  description: string | null;
+  category: string;
+  rarity: string;
+  criteria_type: string;
+  criteria_config: string;
+  status: string;
+  starts_at: number | null;
+  ends_at: number | null;
+}
+
+type ProgressionMetricSnapshot = {
+  lifetimeXp: number;
+  seasonXp: number;
+  missionsCompleted: number;
+  qualifiedReferrals: number;
+  genesisBalance: number;
+  campaignsCompleted: number;
+};
+
+type ProgressionUnlockResult = {
+  milestoneUnlocks: Array<{ id: string; key: string; name: string; achievedValue: number; targetValue: number; seasonId: string | null }>;
+  achievementsEarned: Array<{ id: string; key: string; name: string; rarity: string; seasonId: string | null }>;
+};
+
+function isDefinitionActiveNow(startsAt: number | null, endsAt: number | null, now: number): boolean {
+  if (startsAt !== null && startsAt > now) return false;
+  if (endsAt !== null && endsAt <= now) return false;
+  return true;
+}
+
+async function getProgressionMetricSnapshot(
+  db: D1Database,
+  userId: string,
+  seasonId: string | null,
+): Promise<ProgressionMetricSnapshot> {
+  const [balance, participant, missions, referrals, genesis, campaigns] = await Promise.all([
+    getXpBalance(db, userId),
+    seasonId ? getSeasonParticipant(db, seasonId, userId) : Promise.resolve(null),
+    db.prepare("SELECT COUNT(*) AS count FROM mission_completions WHERE user_id=? AND status='rewarded' AND (? IS NULL OR season_id=?)")
+      .bind(userId, seasonId, seasonId).first<CountRow>(),
+    db.prepare("SELECT COUNT(*) AS count FROM referral_relationships WHERE referrer_user_id=? AND status='qualified'")
+      .bind(userId).first<CountRow>(),
+    getGenesisOwnership(db, userId),
+    db.prepare("SELECT COUNT(*) AS count FROM campaign_participants WHERE user_id=? AND status='completed' AND (? IS NULL OR campaign_id IN (SELECT id FROM campaigns WHERE season_id=?))")
+      .bind(userId, seasonId, seasonId).first<CountRow>(),
+  ]);
+
+  return {
+    lifetimeXp: balance?.lifetime_xp ?? 0,
+    seasonXp: participant?.season_xp ?? 0,
+    missionsCompleted: missions?.count ?? 0,
+    qualifiedReferrals: referrals?.count ?? 0,
+    genesisBalance: genesis?.balance ?? 0,
+    campaignsCompleted: campaigns?.count ?? 0,
+  };
+}
+
+function metricValueForMilestone(metric: ProgressionMetricSnapshot, metricType: ProgressionMilestoneRow["metric_type"]): number | null {
+  if (metricType === "lifetime_xp") return metric.lifetimeXp;
+  if (metricType === "season_xp") return metric.seasonXp;
+  if (metricType === "missions_completed") return metric.missionsCompleted;
+  if (metricType === "qualified_referrals") return metric.qualifiedReferrals;
+  if (metricType === "genesis_balance") return metric.genesisBalance;
+  if (metricType === "campaigns_completed") return metric.campaignsCompleted;
+  return null;
+}
+
+async function hasTrustedActivityEvent(
+  db: D1Database,
+  userId: string,
+  eventType: string,
+  sourceType?: string,
+  seasonId?: string | null,
+): Promise<boolean> {
+  let sql = "SELECT id FROM trusted_activity_events WHERE user_id=? AND event_type=?";
+  const bindings: Array<string> = [userId, eventType];
+  if (sourceType) { sql += " AND source_type=?"; bindings.push(sourceType); }
+  if (seasonId) { sql += " AND season_id=?"; bindings.push(seasonId); }
+  sql += " LIMIT 1";
+  return (await db.prepare(sql).bind(...bindings).first<{ id: string }>()) !== null;
+}
+
+async function achievementCriteriaPassed(
+  db: D1Database,
+  userId: string,
+  definition: AchievementDefinitionRow,
+  metric: ProgressionMetricSnapshot,
+  seasonId: string | null,
+): Promise<{ passed: boolean; evidence: unknown }> {
+  const config = safeJsonParse(definition.criteria_config) as Record<string, unknown> | null;
+  if (!config) return { passed: false, evidence: { reason: "invalid_criteria_config" } };
+
+  if (definition.criteria_type === "metric") {
+    const metricType = typeof config.metric === "string" ? config.metric : "";
+    const target = typeof config.target === "number" && Number.isFinite(config.target) ? Math.floor(config.target) : 0;
+    const value = metricValueForMilestone(metric, metricType as ProgressionMilestoneRow["metric_type"]);
+    return { passed: value !== null && target > 0 && value >= target, evidence: { metric: metricType, value, target } };
+  }
+
+  if (definition.criteria_type === "trusted_event") {
+    const eventType = typeof config.eventType === "string" ? config.eventType : "";
+    const sourceType = typeof config.sourceType === "string" ? config.sourceType : undefined;
+    const scopedSeasonId = config.seasonScoped === true ? seasonId : null;
+    if (!eventType) return { passed: false, evidence: { reason: "missing_event_type" } };
+    const passed = await hasTrustedActivityEvent(db, userId, eventType, sourceType, scopedSeasonId);
+    return { passed, evidence: { eventType, sourceType: sourceType ?? null, seasonId: scopedSeasonId } };
+  }
+
+  if (definition.criteria_type === "trusted_event_all") {
+    const eventTypes = Array.isArray(config.eventTypes)
+      ? config.eventTypes.filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      : [];
+    const sourceType = typeof config.sourceType === "string" ? config.sourceType : undefined;
+    const scopedSeasonId = config.seasonScoped === true ? seasonId : null;
+    if (eventTypes.length < 2) return { passed: false, evidence: { reason: "insufficient_event_types" } };
+    const checks = await Promise.all(eventTypes.map((eventType) => hasTrustedActivityEvent(db, userId, eventType, sourceType, scopedSeasonId)));
+    return { passed: checks.every(Boolean), evidence: { eventTypes, matched: eventTypes.filter((_, index) => checks[index]), sourceType: sourceType ?? null, seasonId: scopedSeasonId } };
+  }
+
+  return { passed: false, evidence: { reason: "unsupported_criteria_type", criteriaType: definition.criteria_type } };
+}
+
+async function evaluateProgressionUnlocks(db: D1Database, userId: string): Promise<ProgressionUnlockResult> {
+  const now = Date.now();
+  const currentSeason = await getCurrentSeason(db);
+  const activeSeasonId = currentSeason && isSeasonOpen(currentSeason, now)
+    ? (await getSeasonParticipant(db, currentSeason.id, userId))?.status === "active" ? currentSeason.id : null
+    : null;
+
+  const [globalMetric, seasonMetric, milestoneResult, achievementResult] = await Promise.all([
+    getProgressionMetricSnapshot(db, userId, null),
+    activeSeasonId ? getProgressionMetricSnapshot(db, userId, activeSeasonId) : Promise.resolve(null),
+    db.prepare("SELECT id,season_id,key,name,description,metric_type,target_value,requirements_config,reward_config,status,sort_order,starts_at,ends_at FROM progression_milestones WHERE status='active' AND (season_id IS NULL OR season_id=?) ORDER BY sort_order ASC,target_value ASC")
+      .bind(activeSeasonId).all<ProgressionMilestoneRow>(),
+    db.prepare("SELECT id,key,name,description,category,rarity,criteria_type,criteria_config,status,starts_at,ends_at FROM achievements WHERE status IN ('active','hidden') ORDER BY created_at ASC")
+      .all<AchievementDefinitionRow>(),
+  ]);
+
+  const unlocked: ProgressionUnlockResult["milestoneUnlocks"] = [];
+  for (const milestone of milestoneResult.results ?? []) {
+    if (!isDefinitionActiveNow(milestone.starts_at, milestone.ends_at, now)) continue;
+    if (milestone.season_id && milestone.season_id !== activeSeasonId) continue;
+    const metric = milestone.season_id ? seasonMetric : globalMetric;
+    if (!metric) continue;
+    const achievedValue = metricValueForMilestone(metric, milestone.metric_type);
+    if (achievedValue === null || achievedValue < milestone.target_value) continue;
+
+    const existing = await db.prepare("SELECT id,status FROM user_milestone_unlocks WHERE milestone_id=? AND user_id=? LIMIT 1")
+      .bind(milestone.id, userId).first<{ id: string; status: string }>();
+    if (existing?.status === "unlocked") continue;
+
+    const id = existing?.id ?? crypto.randomUUID();
+    const evidence = JSON.stringify({ metricType: milestone.metric_type, achievedValue, targetValue: milestone.target_value, evaluatedAt: now });
+    try {
+      if (existing) {
+        await db.prepare("UPDATE user_milestone_unlocks SET season_id=?,achieved_value=?,status='unlocked',source_type='system',source_id=?,evidence=?,unlocked_at=?,revoked_at=NULL,updated_at=? WHERE id=?")
+          .bind(milestone.season_id, achievedValue, `milestone:${milestone.id}`, evidence, now, now, id).run();
+      } else {
+        await db.prepare("INSERT INTO user_milestone_unlocks (id,milestone_id,user_id,season_id,achieved_value,status,source_type,source_id,evidence,unlocked_at,revoked_at,created_at,updated_at) VALUES (?,?,?,?,?,'unlocked','system',?,?,?,NULL,?,?)")
+          .bind(id, milestone.id, userId, milestone.season_id, achievedValue, `milestone:${milestone.id}`, evidence, now, now, now).run();
+      }
+      unlocked.push({ id, key: milestone.key, name: milestone.name, achievedValue, targetValue: milestone.target_value, seasonId: milestone.season_id });
+    } catch (error) {
+      const raced = await db.prepare("SELECT id FROM user_milestone_unlocks WHERE milestone_id=? AND user_id=? AND status='unlocked' LIMIT 1")
+        .bind(milestone.id, userId).first<{ id: string }>();
+      if (!raced) throw error;
+    }
+  }
+
+  const earned: ProgressionUnlockResult["achievementsEarned"] = [];
+  for (const definition of achievementResult.results ?? []) {
+    if (!isDefinitionActiveNow(definition.starts_at, definition.ends_at, now)) continue;
+    const config = safeJsonParse(definition.criteria_config) as Record<string, unknown> | null;
+    const achievementSeasonId = config?.seasonScoped === true ? activeSeasonId : null;
+    if (config?.seasonScoped === true && !achievementSeasonId) continue;
+
+    const existing = achievementSeasonId
+      ? await db.prepare("SELECT id,status FROM user_achievements WHERE achievement_id=? AND user_id=? AND season_id=? LIMIT 1").bind(definition.id, userId, achievementSeasonId).first<{ id: string; status: string }>()
+      : await db.prepare("SELECT id,status FROM user_achievements WHERE achievement_id=? AND user_id=? AND season_id IS NULL LIMIT 1").bind(definition.id, userId).first<{ id: string; status: string }>();
+    if (existing?.status === "earned") continue;
+
+    const criteria = await achievementCriteriaPassed(db, userId, definition, achievementSeasonId ? (seasonMetric ?? globalMetric) : globalMetric, achievementSeasonId);
+    if (!criteria.passed) continue;
+
+    const id = existing?.id ?? crypto.randomUUID();
+    const evidence = JSON.stringify({ criteriaType: definition.criteria_type, criteria: criteria.evidence, evaluatedAt: now });
+    try {
+      if (existing) {
+        await db.prepare("UPDATE user_achievements SET season_id=?,status='earned',source_type='system',source_id=?,evidence=?,earned_at=?,revoked_at=NULL,updated_at=? WHERE id=?")
+          .bind(achievementSeasonId, `achievement:${definition.id}`, evidence, now, now, id).run();
+      } else {
+        await db.prepare("INSERT INTO user_achievements (id,achievement_id,user_id,season_id,status,source_type,source_id,evidence,earned_at,revoked_at,created_at,updated_at) VALUES (?,?,?,?,'earned','system',?,?,?,NULL,?,?)")
+          .bind(id, definition.id, userId, achievementSeasonId, `achievement:${definition.id}`, evidence, now, now, now).run();
+      }
+      earned.push({ id, key: definition.key, name: definition.name, rarity: definition.rarity, seasonId: achievementSeasonId });
+    } catch (error) {
+      const raced = achievementSeasonId
+        ? await db.prepare("SELECT id FROM user_achievements WHERE achievement_id=? AND user_id=? AND season_id=? AND status='earned' LIMIT 1").bind(definition.id, userId, achievementSeasonId).first<{ id: string }>()
+        : await db.prepare("SELECT id FROM user_achievements WHERE achievement_id=? AND user_id=? AND season_id IS NULL AND status='earned' LIMIT 1").bind(definition.id, userId).first<{ id: string }>();
+      if (!raced) throw error;
+    }
+  }
+
+  return { milestoneUnlocks: unlocked, achievementsEarned: earned };
+}
+
+async function refreshProgressionUnlocksSafely(db: D1Database, userId: string): Promise<ProgressionUnlockResult> {
+  try {
+    return await evaluateProgressionUnlocks(db, userId);
+  } catch (error) {
+    console.error("Progression unlock evaluation failed:", error);
+    return { milestoneUnlocks: [], achievementsEarned: [] };
+  }
+}
+
 async function getProgressionSnapshot(db:D1Database,userId:string){
   const balance=await getXpBalance(db,userId),xp=balance?.lifetime_xp??0;
   const levels=(await db.prepare("SELECT id,key,name,description,min_lifetime_xp,sort_order,icon_key,benefits_config FROM progression_levels WHERE status='active' ORDER BY min_lifetime_xp ASC,sort_order ASC").all<ProgressionLevelRow>()).results??[];
@@ -1859,7 +2095,7 @@ async function evaluateReferralQuality(db:D1Database,referredUserId:string,seaso
   }
   return {changed:transitions.length>0,relationship:await getReferralRelationshipByReferredUser(db,referredUserId),transitions,ruleSet:{id:ruleSet.id,key:ruleSet.key,version:ruleSet.version}};
 }
-async function processMissionParticipation(db:D1Database,mission:MissionRow,userId:string,completion:MissionCompletionRow,trustLevel:TrustedActivityTrustLevel="admin"){const activityId=await recordTrustedActivity(db,{userId,seasonId:mission.season_id,eventType:'mission_completed',sourceType:'mission',sourceId:mission.id,trustLevel,occurredAt:completion.rewarded_at??Date.now(),idempotencyKey:`activity:mission:${completion.id}`,evidence:{completionId:completion.id,xpTransactionId:completion.xp_transaction_id}});return {activityId,referral:await evaluateReferralQuality(db,userId,mission.season_id)};}
+async function processMissionParticipation(db:D1Database,mission:MissionRow,userId:string,completion:MissionCompletionRow,trustLevel:TrustedActivityTrustLevel="admin"){const activityId=await recordTrustedActivity(db,{userId,seasonId:mission.season_id,eventType:'mission_completed',sourceType:'mission',sourceId:mission.id,trustLevel,occurredAt:completion.rewarded_at??Date.now(),idempotencyKey:`activity:mission:${completion.id}`,evidence:{completionId:completion.id,xpTransactionId:completion.xp_transaction_id}});const referral=await evaluateReferralQuality(db,userId,mission.season_id);const progression=await refreshProgressionUnlocksSafely(db,userId);return {activityId,referral,progression};}
 async function writeAdminAudit(db:D1Database,adminUserId:string,action:string,targetType:string,targetId:string|null,reason:string|null,newValue:unknown,requestId:string|null){await db.prepare("INSERT INTO admin_audit_log (id,admin_user_id,action,target_type,target_id,reason,old_value,new_value,request_id,created_at) VALUES (?,?,?,?,?,?,NULL,?,?,?)").bind(crypto.randomUUID(),adminUserId,action,targetType,targetId,reason,newValue===undefined?null:JSON.stringify(newValue),requestId,Date.now()).run();}
 
 export default {
@@ -4605,6 +4841,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/me/overview") {
       try { const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);const [xp,genesis,progression,referral,refCounts,rewards,eligibility,campaigns]=await Promise.all([getXpBalance(env.DB,auth.user.id),getGenesisOwnership(env.DB,auth.user.id),getProgressionSnapshot(env.DB,auth.user.id),getReferralRelationshipByReferredUser(env.DB,auth.user.id),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=?").bind(auth.user.id).first<{total:number;qualified:number}>(),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='claimable' THEN 1 ELSE 0 END) AS claimable,SUM(CASE WHEN status='claimed' THEN 1 ELSE 0 END) AS claimed FROM reward_entitlements WHERE user_id=?").bind(auth.user.id).first<{total:number;claimable:number;claimed:number}>(),env.DB.prepare("SELECT e.result,e.passed_required,e.total_required,e.evaluated_at,p.key,p.name,p.program_type,p.status FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC LIMIT 10").bind(auth.user.id).all(),env.DB.prepare("SELECT cp.campaign_id,cp.status,cp.score,cp.joined_at,cp.completed_at,c.slug,c.name,c.campaign_type,c.ends_at FROM campaign_participants cp JOIN campaigns c ON c.id=cp.campaign_id WHERE cp.user_id=? ORDER BY cp.updated_at DESC LIMIT 10").bind(auth.user.id).all()]);const participant=season?await getSeasonParticipant(env.DB,season.id,auth.user.id):null;const rank=season&&participant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;return jsonResponse(request,{success:true,authenticated:true,user:{id:auth.user.id,username:auth.user.username,referralCode:auth.user.referral_code,country:auth.user.country,createdAt:auth.user.created_at},wallet:{address:getAddress(auth.wallet.address),chainId:auth.wallet.chain_id},genesis:genesis?serializeGenesisOwnership(genesis):null,xp:{lifetimeXp:xp?.lifetime_xp??0,seasonXp:participant?.season_xp??0},progression,season:season?{...serializeSeason(season),participant:participant?serializeSeasonParticipant(participant):null,rank}:null,referrals:{referredBy:referral?serializeReferralRelationship(referral):null,total:refCounts?.total??0,qualified:refCounts?.qualified??0},campaigns:campaigns.results??[],eligibility:eligibility.results??[],rewards:{total:rewards?.total??0,claimable:rewards?.claimable??0,claimed:rewards?.claimed??0}});}catch(error){console.error("Overview failed:",error);return jsonResponse(request,{success:false,error:"Unable to load account overview."},500);}
     }
+    if(request.method==="POST"&&url.pathname==="/progression/sync"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const unlocks=await evaluateProgressionUnlocks(env.DB,auth.user.id);return jsonResponse(request,{success:true,authenticated:true,unlocks,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
     if(request.method==="GET"&&url.pathname==="/progression/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
 
 
@@ -4777,12 +5014,14 @@ export default {
 
         const ownership = await getGenesisOwnership(env.DB, auth.user.id);
         if (!ownership) throw new Error("Genesis ownership snapshot was not saved.");
+        const progressionUnlocks = await refreshProgressionUnlocksSafely(env.DB, auth.user.id);
 
         return jsonResponse(request, {
           success: true,
           authenticated: true,
           cached: false,
           genesis: serializeGenesisOwnership(ownership),
+          progressionUnlocks,
         });
       } catch (error) {
         console.error("Genesis ownership sync failed:", error);
