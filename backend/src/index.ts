@@ -45,6 +45,34 @@ const GENESIS_ABI = parseAbi([
 ]);
 
 
+const EARN_VAULTS = [
+  { key: "bfbtc", address: "0x701819f06804398304fDE6b7f46278bDF1Cfa39F" as const },
+  { key: "bfusd", address: "0xeff37c33EFA31a7ae87db4f09f260562f900C719" as const },
+] as const;
+const STAKING_CONTRACTS = [
+  { key: "bnb", address: "0x3b2A4eFF7FC2C18fF11d6a687342eCAB4E4512f6" as const },
+  { key: "btcb", address: "0xd436FBbA8C770862B815D575519347Fb6E450978" as const },
+  { key: "usdt", address: "0xa381410664bB7bE241aA456D2C3130474E28013d" as const },
+] as const;
+const EARN_ACTIVITY_ABI = [
+  { type: "function", name: "getUserPositionIds", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }] },
+  { type: "function", name: "getPosition", stateMutability: "view", inputs: [{ name: "id", type: "uint256" }], outputs: [{ name: "", type: "tuple", components: [
+    { name: "id", type: "uint256" }, { name: "user", type: "address" }, { name: "principal", type: "uint256" },
+    { name: "createdAt", type: "uint256" }, { name: "withdrawalRequestedAt", type: "uint256" }, { name: "fundedAt", type: "uint256" },
+    { name: "withdrawnAt", type: "uint256" }, { name: "withdrawalFunded", type: "uint256" }, { name: "status", type: "uint8" },
+  ] }] },
+] as const;
+const STAKE_ACTIVITY_ABI = [
+  { type: "function", name: "getUserPositionIds", stateMutability: "view", inputs: [{ name: "user", type: "address" }], outputs: [{ name: "", type: "uint256[]" }] },
+  { type: "function", name: "getPosition", stateMutability: "view", inputs: [{ name: "positionId", type: "uint256" }], outputs: [{ name: "", type: "tuple", components: [
+    { name: "id", type: "uint256" }, { name: "poolId", type: "uint256" }, { name: "user", type: "address" }, { name: "principal", type: "uint256" },
+    { name: "fundedForWithdrawal", type: "uint256" }, { name: "createdAt", type: "uint64" }, { name: "lockStartedAt", type: "uint64" },
+    { name: "lockEndsAt", type: "uint64" }, { name: "unlockRequestedAt", type: "uint64" }, { name: "claimableAt", type: "uint64" },
+    { name: "withdrawnAt", type: "uint64" }, { name: "status", type: "uint8" },
+  ] }] },
+] as const;
+
+
 
 const ALLOWED_ORIGINS = new Set([
 
@@ -1367,6 +1395,172 @@ async function recordTrustedActivity(db:D1Database,input:{userId:string;seasonId
   const id=crypto.randomUUID(),now=Date.now();
   try{await db.prepare("INSERT INTO trusted_activity_events (id,user_id,season_id,event_type,source_type,source_id,trust_level,occurred_at,idempotency_key,evidence,metadata,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)").bind(id,input.userId,input.seasonId??null,input.eventType,input.sourceType,input.sourceId??null,input.trustLevel,input.occurredAt??now,input.idempotencyKey,input.evidence===undefined?null:JSON.stringify(input.evidence),input.metadata===undefined?null:JSON.stringify(input.metadata),now).run();return id;}catch(error){const raced=await db.prepare("SELECT id FROM trusted_activity_events WHERE idempotency_key = ? LIMIT 1").bind(input.idempotencyKey).first<{id:string}>();if(raced)return raced.id;throw error;}
 }
+
+
+function chainSecondsToMs(value: bigint): number | null {
+  if (value <= 0n) return null;
+  const ms = Number(value) * 1000;
+  return Number.isSafeInteger(ms) ? ms : null;
+}
+
+async function seasonForOnchainActivity(db: D1Database, userId: string, occurredAt: number | null): Promise<string | null> {
+  if (!occurredAt) return null;
+  const season = await getCurrentSeason(db);
+  if (!season || !isSeasonOpen(season, Date.now())) return null;
+  const participant = await getSeasonParticipant(db, season.id, userId);
+  if (participant?.status !== "active") return null;
+  if (season.starts_at !== null && occurredAt < season.starts_at) return null;
+  if (season.ends_at !== null && occurredAt >= season.ends_at) return null;
+  return season.id;
+}
+
+async function syncOnchainActivity(db: D1Database, rpcUrl: string, userId: string, walletAddressRaw: string) {
+  const client = createPublicClient({ transport: http(rpcUrl) });
+  const walletAddress = getAddress(walletAddressRaw);
+  const walletLower = walletAddress.toLowerCase();
+  const recorded: Array<{ id: string; eventType: string; product: string; positionId: string; status: number }> = [];
+
+  for (const vault of EARN_VAULTS) {
+    const ids = await client.readContract({ address: vault.address, abi: EARN_ACTIVITY_ABI, functionName: "getUserPositionIds", args: [walletAddress] });
+    for (const positionId of ids) {
+      const position = await client.readContract({ address: vault.address, abi: EARN_ACTIVITY_ABI, functionName: "getPosition", args: [positionId] });
+      if (position.user.toLowerCase() !== walletLower) continue;
+      const createdAt = chainSecondsToMs(position.createdAt);
+      const seasonId = await seasonForOnchainActivity(db, userId, createdAt);
+      const sourceId = `earn:${vault.address.toLowerCase()}:${position.id.toString()}`;
+      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: vault.address.toLowerCase(), product: vault.key, positionId: position.id.toString(), principal: position.principal.toString(), status: Number(position.status), createdAt, withdrawalRequestedAt: chainSecondsToMs(position.withdrawalRequestedAt), fundedAt: chainSecondsToMs(position.fundedAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), withdrawalFunded: position.withdrawalFunded.toString() };
+      const states: Array<{ eventType: string; at: number | null; enabled: boolean }> = [
+        { eventType: "earn_deposit", at: createdAt, enabled: createdAt !== null },
+        { eventType: "earn_withdrawal_requested", at: chainSecondsToMs(position.withdrawalRequestedAt), enabled: position.withdrawalRequestedAt > 0n },
+        { eventType: "earn_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || Number(position.status) === 4 },
+      ];
+      for (const state of states) if (state.enabled) {
+        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "earn_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? Date.now(), idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
+        recorded.push({ id, eventType: state.eventType, product: vault.key, positionId: position.id.toString(), status: Number(position.status) });
+      }
+    }
+  }
+
+  for (const staking of STAKING_CONTRACTS) {
+    const ids = await client.readContract({ address: staking.address, abi: STAKE_ACTIVITY_ABI, functionName: "getUserPositionIds", args: [walletAddress] });
+    for (const positionId of ids) {
+      const position = await client.readContract({ address: staking.address, abi: STAKE_ACTIVITY_ABI, functionName: "getPosition", args: [positionId] });
+      if (position.user.toLowerCase() !== walletLower) continue;
+      const createdAt = chainSecondsToMs(position.createdAt);
+      const seasonId = await seasonForOnchainActivity(db, userId, createdAt);
+      const sourceId = `stake:${staking.address.toLowerCase()}:${position.id.toString()}`;
+      const evidence = { chainId: AUTH_CHAIN_ID, contractAddress: staking.address.toLowerCase(), product: staking.key, positionId: position.id.toString(), poolId: position.poolId.toString(), principal: position.principal.toString(), status: Number(position.status), createdAt, lockStartedAt: chainSecondsToMs(position.lockStartedAt), lockEndsAt: chainSecondsToMs(position.lockEndsAt), unlockRequestedAt: chainSecondsToMs(position.unlockRequestedAt), claimableAt: chainSecondsToMs(position.claimableAt), withdrawnAt: chainSecondsToMs(position.withdrawnAt), fundedForWithdrawal: position.fundedForWithdrawal.toString() };
+      const states: Array<{ eventType: string; at: number | null; enabled: boolean }> = [
+        { eventType: "stake_deposit", at: createdAt, enabled: createdAt !== null },
+        { eventType: "stake_unlock_requested", at: chainSecondsToMs(position.unlockRequestedAt), enabled: position.unlockRequestedAt > 0n },
+        { eventType: "stake_withdrawn", at: chainSecondsToMs(position.withdrawnAt), enabled: position.withdrawnAt > 0n || Number(position.status) === 4 },
+      ];
+      for (const state of states) if (state.enabled) {
+        const id = await recordTrustedActivity(db, { userId, seasonId: state.eventType === "stake_deposit" ? seasonId : null, eventType: state.eventType, sourceType: "onchain", sourceId, trustLevel: "onchain", occurredAt: state.at ?? Date.now(), idempotencyKey: `activity:onchain:${sourceId}:${state.eventType}`, evidence });
+        recorded.push({ id, eventType: state.eventType, product: staking.key, positionId: position.id.toString(), status: Number(position.status) });
+      }
+    }
+  }
+
+  return { walletAddress, scannedAt: Date.now(), recorded };
+}
+
+
+interface TrustedActivityMissionConfig {
+  mode?: string;
+  eventType?: string;
+  sourceType?: string;
+  activityTiming?: "any" | "during_season" | "after_mission_start";
+}
+
+async function verifyTrustedActivityMissions(db: D1Database, userId: string) {
+  const missions = (await db.prepare(
+    `SELECT id,season_id,slug,name,description,category,verification_type,base_xp,status,
+            repeat_type,max_completions,verification_config,sort_order,starts_at,ends_at,
+            created_at,updated_at
+     FROM missions
+     WHERE status='active' AND verification_type='onchain'
+     ORDER BY sort_order ASC, created_at ASC`,
+  ).all<MissionRow>()).results ?? [];
+
+  const completed: Array<{
+    missionId: string;
+    slug: string;
+    completionId: string;
+    activityId: string;
+    xpTransactionId: string | null;
+    totalXp: number;
+  }> = [];
+
+  for (const mission of missions) {
+    const config = safeJsonParse(mission.verification_config) as TrustedActivityMissionConfig | null;
+    if (!config || config.mode !== 'trusted_activity' || !config.eventType) continue;
+    const sourceType = config.sourceType ?? 'onchain';
+    const activityTiming = config.activityTiming ?? 'any';
+
+    let timingSql = '';
+    const timingBindings: Array<string | number> = [];
+
+    if (activityTiming === 'during_season') {
+      if (!mission.season_id) continue;
+      const season = await getSeason(db, mission.season_id);
+      if (!season) continue;
+      if (season.starts_at !== null) {
+        timingSql += ' AND occurred_at >= ?';
+        timingBindings.push(season.starts_at);
+      }
+      if (season.ends_at !== null) {
+        timingSql += ' AND occurred_at < ?';
+        timingBindings.push(season.ends_at);
+      }
+    } else if (activityTiming === 'after_mission_start') {
+      timingSql += ' AND occurred_at >= ?';
+      timingBindings.push(mission.starts_at ?? mission.created_at);
+    }
+
+    const activity = await db.prepare(
+      `SELECT id,season_id,event_type,source_type,source_id,trust_level,occurred_at,evidence,metadata,created_at
+       FROM trusted_activity_events
+       WHERE user_id=?
+         AND event_type=?
+         AND source_type=?
+         AND trust_level IN ('onchain','backend','admin','system')${timingSql}
+       ORDER BY occurred_at ASC, created_at ASC
+       LIMIT 1`,
+    ).bind(userId, config.eventType, sourceType, ...timingBindings).first<{
+      id:string; season_id:string|null; event_type:string; source_type:string; source_id:string|null;
+      trust_level:TrustedActivityTrustLevel; occurred_at:number; evidence:string|null; metadata:string|null; created_at:number;
+    }>();
+
+    if (!activity) continue;
+
+    const result = await rewardVerifiedMissionCompletion(db, mission, userId, {
+      trustedEventKey: activity.id,
+      verificationData: {
+        mode: 'trusted_activity',
+        activityId: activity.id,
+        eventType: activity.event_type,
+        sourceType: activity.source_type,
+        sourceId: activity.source_id,
+        trustLevel: activity.trust_level,
+        occurredAt: activity.occurred_at,
+      },
+    });
+
+    await processMissionParticipation(db, mission, userId, result.completion, activity.trust_level);
+    completed.push({
+      missionId: mission.id,
+      slug: mission.slug,
+      completionId: result.completion.id,
+      activityId: activity.id,
+      xpTransactionId: result.completion.xp_transaction_id,
+      totalXp: result.award.transaction.total_xp,
+    });
+  }
+
+  return completed;
+}
+
 async function getProgressionSnapshot(db:D1Database,userId:string){
   const balance=await getXpBalance(db,userId),xp=balance?.lifetime_xp??0;
   const levels=(await db.prepare("SELECT id,key,name,description,min_lifetime_xp,sort_order,icon_key,benefits_config FROM progression_levels WHERE status='active' ORDER BY min_lifetime_xp ASC,sort_order ASC").all<ProgressionLevelRow>()).results??[];
@@ -4229,6 +4423,33 @@ export default {
       try { const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);const [xp,genesis,progression,referral,refCounts,rewards,eligibility,campaigns]=await Promise.all([getXpBalance(env.DB,auth.user.id),getGenesisOwnership(env.DB,auth.user.id),getProgressionSnapshot(env.DB,auth.user.id),getReferralRelationshipByReferredUser(env.DB,auth.user.id),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=?").bind(auth.user.id).first<{total:number;qualified:number}>(),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='claimable' THEN 1 ELSE 0 END) AS claimable,SUM(CASE WHEN status='claimed' THEN 1 ELSE 0 END) AS claimed FROM reward_entitlements WHERE user_id=?").bind(auth.user.id).first<{total:number;claimable:number;claimed:number}>(),env.DB.prepare("SELECT e.result,e.passed_required,e.total_required,e.evaluated_at,p.key,p.name,p.program_type,p.status FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC LIMIT 10").bind(auth.user.id).all(),env.DB.prepare("SELECT cp.campaign_id,cp.status,cp.score,cp.joined_at,cp.completed_at,c.slug,c.name,c.campaign_type,c.ends_at FROM campaign_participants cp JOIN campaigns c ON c.id=cp.campaign_id WHERE cp.user_id=? ORDER BY cp.updated_at DESC LIMIT 10").bind(auth.user.id).all()]);const participant=season?await getSeasonParticipant(env.DB,season.id,auth.user.id):null;const rank=season&&participant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;return jsonResponse(request,{success:true,authenticated:true,user:{id:auth.user.id,username:auth.user.username,referralCode:auth.user.referral_code,country:auth.user.country,createdAt:auth.user.created_at},wallet:{address:getAddress(auth.wallet.address),chainId:auth.wallet.chain_id},genesis:genesis?serializeGenesisOwnership(genesis):null,xp:{lifetimeXp:xp?.lifetime_xp??0,seasonXp:participant?.season_xp??0},progression,season:season?{...serializeSeason(season),participant:participant?serializeSeasonParticipant(participant):null,rank}:null,referrals:{referredBy:referral?serializeReferralRelationship(referral):null,total:refCounts?.total??0,qualified:refCounts?.qualified??0},campaigns:campaigns.results??[],eligibility:eligibility.results??[],rewards:{total:rewards?.total??0,claimable:rewards?.claimable??0,claimed:rewards?.claimed??0}});}catch(error){console.error("Overview failed:",error);return jsonResponse(request,{success:false,error:"Unable to load account overview."},500);}
     }
     if(request.method==="GET"&&url.pathname==="/progression/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
+
+
+    if (request.method === "POST" && url.pathname === "/activity/sync") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const result = await syncOnchainActivity(env.DB, env.BNB_RPC_URL, auth.user.id, auth.wallet.address);
+        const missions = await verifyTrustedActivityMissions(env.DB, auth.user.id);
+        return jsonResponse(request, { success: true, authenticated: true, activity: result, missions });
+      } catch (error) {
+        console.error("On-chain activity sync failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to sync on-chain activity." }, 500);
+      }
+    }
+
+    if (request.method === "GET" && url.pathname === "/activity/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+        const result = await env.DB.prepare(`SELECT id,season_id,event_type,source_type,source_id,trust_level,occurred_at,evidence,metadata,created_at FROM trusted_activity_events WHERE user_id=? AND source_type='onchain' ORDER BY occurred_at DESC,created_at DESC LIMIT 100`).bind(auth.user.id).all();
+        return jsonResponse(request, { success: true, authenticated: true, activities: result.results ?? [] });
+      } catch (error) {
+        console.error("On-chain activity read failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load on-chain activity." }, 500);
+      }
+    }
+
     if(request.method==="GET"&&url.pathname==="/next-move/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,nextMove:await getNextMoveSnapshot(env.DB,auth.user.id)});}
     if(request.method==="GET"&&url.pathname==="/leaderboard/season"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);if(!season)return jsonResponse(request,{success:true,season:null,entries:[]});const top=await env.DB.prepare("SELECT sp.user_id,u.username,sp.season_xp,sp.joined_at FROM season_participants sp JOIN users u ON u.id=sp.user_id WHERE sp.season_id=? AND sp.status='active' ORDER BY sp.season_xp DESC,sp.joined_at ASC,sp.user_id ASC LIMIT 100").bind(season.id).all();return jsonResponse(request,{success:true,season:serializeSeason(season),me:await getSeasonRankSnapshot(env.DB,auth.user.id,season.id),entries:top.results??[]});}
     if(request.method==="GET"&&url.pathname==="/campaigns"){const now=Date.now();const result=await env.DB.prepare("SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,display_config FROM campaigns WHERE visibility='public' AND status IN ('active','ended') AND (starts_at IS NULL OR starts_at<=?) ORDER BY starts_at DESC").bind(now).all();return jsonResponse(request,{success:true,campaigns:result.results??[]});}
