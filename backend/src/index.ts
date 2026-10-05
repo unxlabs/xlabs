@@ -1745,6 +1745,120 @@ async function verifyTrustedActivityMissions(db: D1Database, userId: string) {
 }
 
 
+type WeeklyParticipationStreakResult = {
+  streakType: "weekly_participation";
+  currentCount: number;
+  bestCount: number;
+  lastPeriodKey: string | null;
+  lastQualifiedAt: number | null;
+  qualifiedThisWeek: boolean;
+  graceActive: boolean;
+  qualifyingWeeks: number;
+};
+
+function isoWeekKeyToMondayUtc(weekKey: string): number | null {
+  const match = /^(\d{4})-W(\d{2})$/.exec(weekKey);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const week = Number(match[2]);
+  if (!Number.isInteger(year) || !Number.isInteger(week) || week < 1 || week > 53) return null;
+  const jan4 = new Date(Date.UTC(year, 0, 4));
+  const jan4Day = jan4.getUTCDay() || 7;
+  return Date.UTC(year, 0, 4 - jan4Day + 1 + (week - 1) * 7, 0, 0, 0, 0);
+}
+
+function consecutiveWeekCount(weekKeys: string[]): { best: number; trailing: number } {
+  const starts = weekKeys
+    .map((key) => ({ key, start: isoWeekKeyToMondayUtc(key) }))
+    .filter((item): item is { key: string; start: number } => item.start !== null)
+    .sort((a, b) => a.start - b.start);
+  if (starts.length === 0) return { best: 0, trailing: 0 };
+
+  let best = 1;
+  let run = 1;
+  for (let index = 1; index < starts.length; index += 1) {
+    const diffWeeks = Math.round((starts[index].start - starts[index - 1].start) / (7 * 24 * 60 * 60 * 1000));
+    run = diffWeeks === 1 ? run + 1 : 1;
+    if (run > best) best = run;
+  }
+  return { best, trailing: run };
+}
+
+async function evaluateWeeklyParticipationStreak(
+  db: D1Database,
+  userId: string,
+  now = Date.now(),
+): Promise<WeeklyParticipationStreakResult> {
+  const result = await db.prepare(
+    `SELECT event_type,occurred_at
+       FROM trusted_activity_events
+      WHERE user_id=?
+        AND source_type='onchain'
+        AND trust_level='onchain'
+        AND event_type IN ('weekly_active_earn','weekly_active_stake')
+      ORDER BY occurred_at ASC,created_at ASC`,
+  ).bind(userId).all<{ event_type: string; occurred_at: number }>();
+
+  const qualifiedByWeek = new Map<string, number>();
+  for (const event of result.results ?? []) {
+    const periodKey = getUtcIsoWeekKey(event.occurred_at);
+    const previous = qualifiedByWeek.get(periodKey) ?? 0;
+    if (event.occurred_at > previous) qualifiedByWeek.set(periodKey, event.occurred_at);
+  }
+
+  const weekKeys = Array.from(qualifiedByWeek.keys()).sort((a, b) => {
+    const aStart = isoWeekKeyToMondayUtc(a) ?? 0;
+    const bStart = isoWeekKeyToMondayUtc(b) ?? 0;
+    return aStart - bStart;
+  });
+  const { best, trailing } = consecutiveWeekCount(weekKeys);
+  const currentWeekKey = getUtcIsoWeekKey(now);
+  const currentWeekStart = isoWeekKeyToMondayUtc(currentWeekKey);
+  const lastPeriodKey = weekKeys.length > 0 ? weekKeys[weekKeys.length - 1] : null;
+  const lastPeriodStart = lastPeriodKey ? isoWeekKeyToMondayUtc(lastPeriodKey) : null;
+  const qualifiedThisWeek = lastPeriodKey === currentWeekKey;
+  const lastWasPreviousWeek = currentWeekStart !== null && lastPeriodStart !== null
+    ? currentWeekStart - lastPeriodStart === 7 * 24 * 60 * 60 * 1000
+    : false;
+  const graceActive = !qualifiedThisWeek && lastWasPreviousWeek;
+  const currentCount = qualifiedThisWeek || graceActive ? trailing : 0;
+  const lastQualifiedAt = lastPeriodKey ? (qualifiedByWeek.get(lastPeriodKey) ?? null) : null;
+  const metadata = {
+    source: "trusted_activity_events",
+    qualifyingEventTypes: ["weekly_active_earn", "weekly_active_stake"],
+    currentWeekKey,
+    qualifiedThisWeek,
+    graceActive,
+    qualifyingWeeks: weekKeys.length,
+    calculatedAt: now,
+  };
+
+  const existing = await db.prepare("SELECT id,freeze_count,created_at FROM user_streaks WHERE user_id=? AND streak_type='weekly_participation' LIMIT 1")
+    .bind(userId).first<{ id: string; freeze_count: number; created_at: number }>();
+  const id = existing?.id ?? crypto.randomUUID();
+  const createdAt = existing?.created_at ?? now;
+  const freezeCount = existing?.freeze_count ?? 0;
+
+  if (existing) {
+    await db.prepare("UPDATE user_streaks SET current_count=?,best_count=?,last_period_key=?,last_qualified_at=?,metadata=?,updated_at=? WHERE id=?")
+      .bind(currentCount, best, lastPeriodKey, lastQualifiedAt, JSON.stringify(metadata), now, id).run();
+  } else {
+    await db.prepare("INSERT INTO user_streaks (id,user_id,streak_type,current_count,best_count,last_period_key,last_qualified_at,freeze_count,metadata,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)")
+      .bind(id, userId, "weekly_participation", currentCount, best, lastPeriodKey, lastQualifiedAt, freezeCount, JSON.stringify(metadata), createdAt, now).run();
+  }
+
+  return {
+    streakType: "weekly_participation",
+    currentCount,
+    bestCount: best,
+    lastPeriodKey,
+    lastQualifiedAt,
+    qualifiedThisWeek,
+    graceActive,
+    qualifyingWeeks: weekKeys.length,
+  };
+}
+
 interface ProgressionMilestoneRow {
   id: string;
   season_id: string | null;
@@ -1882,6 +1996,17 @@ async function achievementCriteriaPassed(
     if (eventTypes.length < 2) return { passed: false, evidence: { reason: "insufficient_event_types" } };
     const checks = await Promise.all(eventTypes.map((eventType) => hasTrustedActivityEvent(db, userId, eventType, sourceType, scopedSeasonId)));
     return { passed: checks.every(Boolean), evidence: { eventTypes, matched: eventTypes.filter((_, index) => checks[index]), sourceType: sourceType ?? null, seasonId: scopedSeasonId } };
+  }
+
+  if (definition.criteria_type === "streak") {
+    const streakType = typeof config.streakType === "string" ? config.streakType : "weekly_participation";
+    const target = typeof config.target === "number" && Number.isFinite(config.target) ? Math.floor(config.target) : 0;
+    const mode = config.mode === "best" ? "best" : "current";
+    if (target <= 0) return { passed: false, evidence: { reason: "invalid_streak_target" } };
+    const streak = await db.prepare("SELECT current_count,best_count,last_period_key,last_qualified_at FROM user_streaks WHERE user_id=? AND streak_type=? LIMIT 1")
+      .bind(userId, streakType).first<{ current_count: number; best_count: number; last_period_key: string | null; last_qualified_at: number | null }>();
+    const value = mode === "best" ? (streak?.best_count ?? 0) : (streak?.current_count ?? 0);
+    return { passed: value >= target, evidence: { streakType, mode, value, target, lastPeriodKey: streak?.last_period_key ?? null, lastQualifiedAt: streak?.last_qualified_at ?? null } };
   }
 
   return { passed: false, evidence: { reason: "unsupported_criteria_type", criteriaType: definition.criteria_type } };
@@ -4841,7 +4966,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/me/overview") {
       try { const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);const [xp,genesis,progression,referral,refCounts,rewards,eligibility,campaigns]=await Promise.all([getXpBalance(env.DB,auth.user.id),getGenesisOwnership(env.DB,auth.user.id),getProgressionSnapshot(env.DB,auth.user.id),getReferralRelationshipByReferredUser(env.DB,auth.user.id),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='qualified' THEN 1 ELSE 0 END) AS qualified FROM referral_relationships WHERE referrer_user_id=?").bind(auth.user.id).first<{total:number;qualified:number}>(),env.DB.prepare("SELECT COUNT(*) AS total,SUM(CASE WHEN status='claimable' THEN 1 ELSE 0 END) AS claimable,SUM(CASE WHEN status='claimed' THEN 1 ELSE 0 END) AS claimed FROM reward_entitlements WHERE user_id=?").bind(auth.user.id).first<{total:number;claimable:number;claimed:number}>(),env.DB.prepare("SELECT e.result,e.passed_required,e.total_required,e.evaluated_at,p.key,p.name,p.program_type,p.status FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC LIMIT 10").bind(auth.user.id).all(),env.DB.prepare("SELECT cp.campaign_id,cp.status,cp.score,cp.joined_at,cp.completed_at,c.slug,c.name,c.campaign_type,c.ends_at FROM campaign_participants cp JOIN campaigns c ON c.id=cp.campaign_id WHERE cp.user_id=? ORDER BY cp.updated_at DESC LIMIT 10").bind(auth.user.id).all()]);const participant=season?await getSeasonParticipant(env.DB,season.id,auth.user.id):null;const rank=season&&participant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;return jsonResponse(request,{success:true,authenticated:true,user:{id:auth.user.id,username:auth.user.username,referralCode:auth.user.referral_code,country:auth.user.country,createdAt:auth.user.created_at},wallet:{address:getAddress(auth.wallet.address),chainId:auth.wallet.chain_id},genesis:genesis?serializeGenesisOwnership(genesis):null,xp:{lifetimeXp:xp?.lifetime_xp??0,seasonXp:participant?.season_xp??0},progression,season:season?{...serializeSeason(season),participant:participant?serializeSeasonParticipant(participant):null,rank}:null,referrals:{referredBy:referral?serializeReferralRelationship(referral):null,total:refCounts?.total??0,qualified:refCounts?.qualified??0},campaigns:campaigns.results??[],eligibility:eligibility.results??[],rewards:{total:rewards?.total??0,claimable:rewards?.claimable??0,claimed:rewards?.claimed??0}});}catch(error){console.error("Overview failed:",error);return jsonResponse(request,{success:false,error:"Unable to load account overview."},500);}
     }
-    if(request.method==="POST"&&url.pathname==="/progression/sync"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const unlocks=await evaluateProgressionUnlocks(env.DB,auth.user.id);return jsonResponse(request,{success:true,authenticated:true,unlocks,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
+    if(request.method==="POST"&&url.pathname==="/progression/sync"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const streak=await evaluateWeeklyParticipationStreak(env.DB,auth.user.id);const unlocks=await evaluateProgressionUnlocks(env.DB,auth.user.id);return jsonResponse(request,{success:true,authenticated:true,streak,unlocks,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
     if(request.method==="GET"&&url.pathname==="/progression/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,progression:await getProgressionSnapshot(env.DB,auth.user.id)});}
 
 
@@ -4850,8 +4975,9 @@ export default {
         const auth = await getAuthenticatedContext(request, env);
         if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
         const result = await syncOnchainActivity(env.DB, env.BNB_RPC_URL, auth.user.id, auth.wallet.address);
+        const streak = await evaluateWeeklyParticipationStreak(env.DB, auth.user.id);
         const missions = await verifyTrustedActivityMissions(env.DB, auth.user.id);
-        return jsonResponse(request, { success: true, authenticated: true, activity: result, missions });
+        return jsonResponse(request, { success: true, authenticated: true, activity: result, streak, missions });
       } catch (error) {
         console.error("On-chain activity sync failed:", error);
         return jsonResponse(request, { success: false, error: "Unable to sync on-chain activity." }, 500);
