@@ -18,6 +18,7 @@ const Campaigns = lazy(() => import("@/features/app/pages/Campaigns"));
 const CampaignDetail = lazy(() => import("@/features/app/pages/CampaignDetail"));
 const History = lazy(() => import("@/features/app/pages/History"));
 const Ecosystem = lazy(() => import("@/features/app/pages/Ecosystem"));
+const Tokenomics = lazy(() => import("@/features/app/pages/Tokenomics"));
 const Learn = lazy(() => import("@/features/app/pages/Learn"));
 const AdminDashboard = lazy(() => import("@/features/admin/AdminDashboard"));
 
@@ -60,6 +61,7 @@ export default function App() {
         <Route path="/app/season" element={<Navigate to="/app/airdrop" replace />} />
         <Route path="/app/history" element={<Lazy><History /></Lazy>} />
         <Route path="/app/ecosystem" element={<Lazy><Ecosystem /></Lazy>} />
+        <Route path="/app/tokenomics" element={<Lazy><Tokenomics /></Lazy>} />
         <Route path="/app/learn" element={<Lazy><Learn /></Lazy>} />
       </Route>
     </Routes>

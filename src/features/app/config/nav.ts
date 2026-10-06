@@ -61,6 +61,11 @@ export const APP_LINKS: NavItem[] = [
     kind: "internal",
   },
   {
+    label: "Tokenomics",
+    to: "/app/tokenomics",
+    kind: "internal",
+  },
+  {
     label: "Learn",
     to: "/app/learn",
     kind: "internal",
