@@ -19,6 +19,7 @@ import { Link } from "react-router-dom";
 import { useAuth } from "@/shared/auth/AuthProvider";
 import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
 import { getMyNextMove, type NextMove } from "@/shared/api/nextMove";
+import { getSeasonLeaderboard, type LeaderboardMe } from "@/shared/api/leaderboard";
 import {
   getCurrentSeason,
   getMyMissions,
@@ -90,6 +91,7 @@ export default function Season() {
   const [missions, setMissions] = useState<MissionRecord[]>([]);
   const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
   const [nextMove, setNextMove] = useState<NextMove | null>(null);
+  const [leaderboardMe, setLeaderboardMe] = useState<LeaderboardMe | null>(null);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,16 +102,18 @@ export default function Season() {
 
     try {
       if (isAuthenticated) {
-        const [result, progressionResult, nextMoveResult] = await Promise.all([
+        const [result, progressionResult, nextMoveResult, leaderboardResult] = await Promise.all([
           getMyMissions(),
           getMyProgression(),
           getMyNextMove(),
+          getSeasonLeaderboard(),
         ]);
         setSeason(result.season);
         setParticipation(result.participation);
         setMissions(result.missions);
         setProgression(progressionResult.progression);
         setNextMove(nextMoveResult.nextMove);
+        setLeaderboardMe(leaderboardResult.me);
       } else {
         const [seasonResult, missionResult] = await Promise.all([
           getCurrentSeason(),
@@ -120,6 +124,7 @@ export default function Season() {
         setMissions(missionResult.missions);
         setProgression(null);
         setNextMove(null);
+        setLeaderboardMe(null);
       }
     } catch (loadError) {
       setError(
@@ -159,16 +164,18 @@ export default function Season() {
       setSeason(result.season);
       setParticipation(result.participation);
 
-      const [missionResult, progressionResult, nextMoveResult] = await Promise.all([
+      const [missionResult, progressionResult, nextMoveResult, leaderboardResult] = await Promise.all([
         getMyMissions(),
         getMyProgression(),
         getMyNextMove(),
+        getSeasonLeaderboard(),
       ]);
       setSeason(missionResult.season);
       setParticipation(missionResult.participation);
       setMissions(missionResult.missions);
       setProgression(progressionResult.progression);
       setNextMove(nextMoveResult.nextMove);
+      setLeaderboardMe(leaderboardResult.me);
     } catch (joinError) {
       setError(
         joinError instanceof Error
@@ -272,6 +279,11 @@ export default function Season() {
           <span>Weekly streak</span>
           <strong>{weeklyStreak ? `${weeklyStreak.current_count} week${weeklyStreak.current_count === 1 ? "" : "s"}` : "—"}</strong>
         </div>
+        <Link className={`${styles.statCard} ${styles.rankStatCard}`} to="/app/leaderboard">
+          <span>Live rank</span>
+          <strong>{leaderboardMe ? `#${leaderboardMe.rank}` : "—"}</strong>
+          <small>View leaderboard <ArrowUpRight size={12} /></small>
+        </Link>
       </section>
 
       {isAuthenticated && progression?.currentLevel ? (

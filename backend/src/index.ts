@@ -4997,7 +4997,65 @@ export default {
     }
 
     if(request.method==="GET"&&url.pathname==="/next-move/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,nextMove:await getNextMoveSnapshot(env.DB,auth.user.id)});}
-    if(request.method==="GET"&&url.pathname==="/leaderboard/season"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const season=await getCurrentSeason(env.DB);if(!season)return jsonResponse(request,{success:true,season:null,entries:[]});const top=await env.DB.prepare("SELECT sp.user_id,u.username,sp.season_xp,sp.joined_at FROM season_participants sp JOIN users u ON u.id=sp.user_id WHERE sp.season_id=? AND sp.status='active' ORDER BY sp.season_xp DESC,sp.joined_at ASC,sp.user_id ASC LIMIT 100").bind(season.id).all();return jsonResponse(request,{success:true,season:serializeSeason(season),me:await getSeasonRankSnapshot(env.DB,auth.user.id,season.id),entries:top.results??[]});}
+    if(request.method==="GET"&&url.pathname==="/leaderboard/season"){
+      const auth=await getAuthenticatedContext(request,env);
+      if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);
+      const season=await getCurrentSeason(env.DB);
+      if(!season)return jsonResponse(request,{success:true,season:null,totalParticipants:0,me:null,entries:[],aroundMe:[]});
+
+      const meParticipant=await getSeasonParticipant(env.DB,season.id,auth.user.id);
+      const totalRow=await env.DB.prepare("SELECT COUNT(*) AS count FROM season_participants WHERE season_id=? AND status='active'").bind(season.id).first<CountRow>();
+      const totalParticipants=totalRow?.count??0;
+      const meRank=meParticipant?await getSeasonRankSnapshot(env.DB,auth.user.id,season.id):null;
+
+      const rankedSql=`WITH ranked AS (
+        SELECT sp.user_id,u.username,w.address AS wallet_address,
+          sp.season_xp,sp.joined_at,
+          ROW_NUMBER() OVER (ORDER BY sp.season_xp DESC,sp.joined_at ASC,sp.user_id ASC) AS rank
+        FROM season_participants sp
+        JOIN users u ON u.id=sp.user_id
+        LEFT JOIN wallets w ON w.user_id=sp.user_id AND w.is_primary=1 AND w.status='active'
+        WHERE sp.season_id=? AND sp.status='active'
+      )`;
+
+      const top=await env.DB.prepare(`${rankedSql} SELECT user_id,username,wallet_address,season_xp,joined_at,rank FROM ranked WHERE rank<=100 ORDER BY rank ASC`).bind(season.id).all();
+      let aroundResults:Record<string,unknown>[]=[];
+      let xpToNextRank:number|null=null;
+      let nextRankXp:number|null=null;
+
+      if(meRank){
+        const minRank=Math.max(1,meRank.rank-2);
+        const maxRank=meRank.rank+2;
+        const around=await env.DB.prepare(`${rankedSql} SELECT user_id,username,wallet_address,season_xp,joined_at,rank FROM ranked WHERE rank BETWEEN ? AND ? ORDER BY rank ASC`).bind(season.id,minRank,maxRank).all();
+        aroundResults=(around.results??[]) as Record<string,unknown>[];
+        if(meRank.rank>1){
+          const next=await env.DB.prepare(`${rankedSql} SELECT season_xp FROM ranked WHERE rank=? LIMIT 1`).bind(season.id,meRank.rank-1).first<{season_xp:number}>();
+          if(next){
+            nextRankXp=Number(next.season_xp??0);
+            xpToNextRank=Math.max(1,nextRankXp-meRank.seasonXp+1);
+          }
+        }
+      }
+
+      const serializeEntry=(row:Record<string,unknown>)=>({
+        rank:Number(row.rank??0),
+        userId:String(row.user_id??""),
+        username:typeof row.username==="string"?row.username:null,
+        walletAddress:typeof row.wallet_address==="string"?row.wallet_address:null,
+        seasonXp:Number(row.season_xp??0),
+        joinedAt:Number(row.joined_at??0),
+        isMe:String(row.user_id??"")===auth.user.id,
+      });
+
+      return jsonResponse(request,{
+        success:true,
+        season:serializeSeason(season),
+        totalParticipants,
+        me:meRank?{...meRank,totalParticipants,xpToNextRank,nextRankXp}:null,
+        entries:((top.results??[]) as Record<string,unknown>[]).map(serializeEntry),
+        aroundMe:aroundResults.map(serializeEntry),
+      });
+    }
     if(request.method==="GET"&&url.pathname==="/campaigns"){const now=Date.now();const result=await env.DB.prepare("SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,display_config FROM campaigns WHERE visibility='public' AND status IN ('active','ended') AND (starts_at IS NULL OR starts_at<=?) ORDER BY starts_at DESC").bind(now).all();return jsonResponse(request,{success:true,campaigns:result.results??[]});}
     if(request.method==="GET"&&url.pathname==="/eligibility/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.result,e.passed_required,e.total_required,e.reason_summary,e.evaluated_at,e.frozen,p.id AS program_id,p.key,p.name,p.program_type,p.version,p.status,p.frozen_at FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,evaluations:result.results??[]});}
     if(request.method==="GET"&&url.pathname==="/rewards/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.amount_atomic,e.token_id,e.metadata,e.status,e.earned_at,e.approved_at,e.claimable_at,e.claimed_at,e.cancelled_at,p.key,p.name,p.reward_type,p.asset_chain_id,p.asset_address,p.asset_symbol,p.distribution_mode FROM reward_entitlements e JOIN reward_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.earned_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,entitlements:result.results??[]});}

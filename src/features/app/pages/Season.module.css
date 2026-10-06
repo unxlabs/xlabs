@@ -15,10 +15,13 @@
 .refreshButton { width: 44px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.08); color: #fff; cursor: pointer; }
 .joinedPill { padding: 0 16px; background: rgba(233,248,199,.14); border: 1px solid rgba(233,248,199,.28); color: #e9f8c7; }
 .error { padding: 13px 16px; border-radius: 16px; background: #fff1f1; border: 1px solid #ffd1d1; color: #8b1d1d; font-weight: 800; }
-.stats { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 10px; }
+.stats { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 10px; }
 .statCard { padding: 18px; border: 1px solid rgba(0,0,0,.07); border-radius: 18px; background: rgba(255,255,255,.9); display: grid; gap: 8px; }
 .statCard span { color: rgba(11,13,16,.52); font-size: 11px; font-weight: 900; text-transform: uppercase; letter-spacing: .06em; }
 .statCard strong { font-size: 21px; overflow-wrap: anywhere; }
+.rankStatCard { color: inherit; text-decoration: none; transition: transform .15s ease, border-color .15s ease; }
+.rankStatCard:hover { transform: translateY(-1px); border-color: rgba(0,0,0,.16); }
+.rankStatCard small { display: inline-flex; align-items: center; gap: 4px; color: rgba(11,13,16,.46); font-size: 9px; font-weight: 900; }
 .progressionCard { display: grid; grid-template-columns: minmax(0,1.65fr) minmax(280px,.75fr); gap: 12px; }
 .progressionMain,.nextMovePreview { border: 1px solid rgba(0,0,0,.07); border-radius: 22px; background: rgba(255,255,255,.92); }
 .progressionMain { padding: 23px; }
@@ -99,6 +102,7 @@
 .spin { animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 980px) { .progressionCard { grid-template-columns: 1fr; } .signalGrid { grid-template-columns: 1fr; } }
+@media (max-width: 1050px) { .stats { grid-template-columns: repeat(3,minmax(0,1fr)); } }
 @media (max-width: 900px) { .stats { grid-template-columns: repeat(2,minmax(0,1fr)); } .missionGrid { grid-template-columns: 1fr; } }
 @media (max-width: 720px) { .unlockColumns { grid-template-columns: 1fr; } }
 @media (max-width: 620px) { .hero { align-items: stretch; flex-direction: column; padding: 22px; } .heroActions { justify-content: space-between; } .primaryButton,.joinedPill { flex: 1; } .stats { grid-template-columns: 1fr 1fr; } .section,.unlockSection { padding: 16px; } .progressionHeading { align-items: flex-start; } .levelLine h2 { font-size: 24px; } .lifetimeXp strong { font-size: 18px; } .levelProgressFoot { gap: 7px; } .levelProgressFoot span:nth-child(2) { text-align: center; } }

@@ -36,6 +36,11 @@ export const APP_LINKS: NavItem[] = [
     kind: "internal",
   },
   {
+    label: "Leaderboard",
+    to: "/app/leaderboard",
+    kind: "internal",
+  },
+  {
     label: "Referrals",
     to: "/app/referrals",
     kind: "internal",
