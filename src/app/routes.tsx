@@ -14,6 +14,8 @@ const Rewards = lazy(() => import("@/features/app/pages/Rewards"));
 const Referrals = lazy(() => import("@/features/app/pages/Referrals"));
 const Airdrop = lazy(() => import("@/features/app/pages/Season"));
 const Leaderboard = lazy(() => import("@/features/app/pages/Leaderboard"));
+const Campaigns = lazy(() => import("@/features/app/pages/Campaigns"));
+const CampaignDetail = lazy(() => import("@/features/app/pages/CampaignDetail"));
 const History = lazy(() => import("@/features/app/pages/History"));
 const Ecosystem = lazy(() => import("@/features/app/pages/Ecosystem"));
 const Learn = lazy(() => import("@/features/app/pages/Learn"));
@@ -53,6 +55,8 @@ export default function App() {
         <Route path="/app/referrals" element={<Lazy><Referrals /></Lazy>} />
         <Route path="/app/airdrop" element={<Lazy><Airdrop /></Lazy>} />
         <Route path="/app/leaderboard" element={<Lazy><Leaderboard /></Lazy>} />
+        <Route path="/app/campaigns" element={<Lazy><Campaigns /></Lazy>} />
+        <Route path="/app/campaigns/:slug" element={<Lazy><CampaignDetail /></Lazy>} />
         <Route path="/app/season" element={<Navigate to="/app/airdrop" replace />} />
         <Route path="/app/history" element={<Lazy><History /></Lazy>} />
         <Route path="/app/ecosystem" element={<Lazy><Ecosystem /></Lazy>} />
