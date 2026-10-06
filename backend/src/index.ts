@@ -1898,6 +1898,112 @@ type ProgressionMetricSnapshot = {
   campaignsCompleted: number;
 };
 
+
+type CampaignStatus = "draft" | "scheduled" | "active" | "paused" | "ended" | "archived";
+type CampaignVisibility = "public" | "unlisted" | "private";
+type CampaignJoinMode = "auto" | "manual" | "invite" | "eligibility";
+
+interface CampaignRow {
+  id: string; season_id: string | null; slug: string; name: string; description: string | null;
+  campaign_type: string; status: CampaignStatus; visibility: CampaignVisibility; join_mode: CampaignJoinMode;
+  starts_at: number | null; ends_at: number | null; participant_cap: number | null;
+  requirements_config: string | null; scoring_config: string | null; display_config: string | null; metadata: string | null;
+  created_at: number; updated_at: number;
+}
+
+interface CampaignParticipantRow {
+  id: string; campaign_id: string; user_id: string; status: "active" | "completed" | "disqualified" | "withdrawn";
+  joined_at: number; completed_at: number | null; disqualified_at: number | null;
+  qualification_snapshot: string | null; progress_snapshot: string | null; score: number; created_at: number; updated_at: number;
+}
+
+function parseJsonObject(value: string | null): Record<string, unknown> {
+  if (!value) return {};
+  try { const parsed = JSON.parse(value); return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
+  catch { return {}; }
+}
+
+function campaignWindowState(campaign: CampaignRow, now = Date.now()): "upcoming" | "live" | "ended" | "paused" | "inactive" {
+  if (campaign.status === "paused") return "paused";
+  if (campaign.status === "ended" || (campaign.ends_at !== null && campaign.ends_at <= now)) return "ended";
+  if (campaign.status === "scheduled" || (campaign.starts_at !== null && campaign.starts_at > now)) return "upcoming";
+  if (campaign.status === "active") return "live";
+  return "inactive";
+}
+
+async function getCampaignBySlug(db: D1Database, slug: string): Promise<CampaignRow | null> {
+  return db.prepare(`SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,requirements_config,scoring_config,display_config,metadata,created_at,updated_at FROM campaigns WHERE slug=? LIMIT 1`).bind(slug).first<CampaignRow>();
+}
+
+async function getCampaignParticipant(db: D1Database, campaignId: string, userId: string): Promise<CampaignParticipantRow | null> {
+  return db.prepare(`SELECT id,campaign_id,user_id,status,joined_at,completed_at,disqualified_at,qualification_snapshot,progress_snapshot,score,created_at,updated_at FROM campaign_participants WHERE campaign_id=? AND user_id=? LIMIT 1`).bind(campaignId,userId).first<CampaignParticipantRow>();
+}
+
+async function evaluateCampaignRequirements(db: D1Database, campaign: CampaignRow, userId: string) {
+  const config = parseJsonObject(campaign.requirements_config);
+  const season = campaign.season_id ? await db.prepare("SELECT id FROM seasons WHERE id=? LIMIT 1").bind(campaign.season_id).first<{id:string}>() : null;
+  const [xp, genesis, refs, seasonParticipant] = await Promise.all([
+    getXpBalance(db,userId), getGenesisOwnership(db,userId),
+    db.prepare("SELECT COUNT(*) AS count FROM referral_relationships WHERE referrer_user_id=? AND status='qualified'").bind(userId).first<CountRow>(),
+    season ? getSeasonParticipant(db,season.id,userId) : Promise.resolve(null),
+  ]);
+  const checks:Array<{key:string;required:number|string;actual:number|string|null;passed:boolean}> = [];
+  const num=(key:string,actual:number)=>{ const raw=config[key]; if(typeof raw==="number"&&Number.isFinite(raw)){checks.push({key,required:raw,actual,passed:actual>=raw});}};
+  num("minLifetimeXp",xp?.lifetime_xp??0); num("minSeasonXp",seasonParticipant?.season_xp??0); num("minGenesisBalance",genesis?.balance??0); num("minQualifiedReferrals",refs?.count??0);
+  if(typeof config.country==="string"){
+    const user=await db.prepare("SELECT country FROM users WHERE id=?").bind(userId).first<{country:string|null}>();
+    const required=config.country.trim().toLowerCase(), actual=(user?.country??"").trim().toLowerCase();
+    checks.push({key:"country",required:config.country,actual:user?.country??null,passed:Boolean(actual)&&actual===required});
+  }
+  return {eligible:checks.every(c=>c.passed),checks};
+}
+
+async function getCampaignMissionProgress(db:D1Database,campaign:CampaignRow,userId:string){
+  const rows=await db.prepare(`SELECT cm.mission_id,cm.required,cm.sort_order,m.slug,m.name,m.description,m.base_xp,m.status,
+    EXISTS(SELECT 1 FROM mission_completions mc WHERE mc.mission_id=m.id AND mc.user_id=? AND mc.status='rewarded' AND (? IS NULL OR mc.season_id=?)) AS completed
+    FROM campaign_missions cm JOIN missions m ON m.id=cm.mission_id WHERE cm.campaign_id=? ORDER BY cm.sort_order ASC,m.sort_order ASC`).bind(userId,campaign.season_id,campaign.season_id,campaign.id).all();
+  const missions=((rows.results??[]) as Record<string,unknown>[]).map(r=>({missionId:String(r.mission_id),slug:String(r.slug),name:String(r.name),description:typeof r.description==="string"?r.description:null,baseXp:Number(r.base_xp??0),required:Number(r.required)===1,completed:Number(r.completed)===1}));
+  const required=missions.filter(m=>m.required), optional=missions.filter(m=>!m.required);
+  const requiredCompleted=required.filter(m=>m.completed).length, optionalCompleted=optional.filter(m=>m.completed).length;
+  const complete=required.length>0&&requiredCompleted===required.length;
+  return {missions,requiredTotal:required.length,requiredCompleted,optionalTotal:optional.length,optionalCompleted,complete,score:requiredCompleted+optionalCompleted};
+}
+
+async function writeCampaignEvent(db:D1Database,input:{campaignId:string;userId:string;eventType:string;sourceType:string;sourceId?:string|null;scoreDelta?:number;idempotencyKey:string;metadata?:unknown}){
+  const now=Date.now();
+  try{await db.prepare(`INSERT INTO campaign_events (id,campaign_id,user_id,activity_event_id,event_type,source_type,source_id,score_delta,idempotency_key,metadata,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)`).bind(crypto.randomUUID(),input.campaignId,input.userId,null,input.eventType,input.sourceType,input.sourceId??null,input.scoreDelta??0,input.idempotencyKey,input.metadata===undefined?null:JSON.stringify(input.metadata),now).run();return true;}catch(error){if(String(error).toLowerCase().includes("unique"))return false;throw error;}
+}
+
+async function syncCampaignParticipant(db:D1Database,campaign:CampaignRow,userId:string){
+  const participant=await getCampaignParticipant(db,campaign.id,userId); if(!participant)return null;
+  if(participant.status==="disqualified"||participant.status==="withdrawn")return {participant,progress:null,changed:false};
+  const progress=await getCampaignMissionProgress(db,campaign,userId); const now=Date.now();
+  const shouldComplete=participant.status==="active"&&progress.complete;
+  const nextStatus=shouldComplete?"completed":participant.status; const completedAt=shouldComplete?now:participant.completed_at;
+  const snapshot=JSON.stringify({requiredTotal:progress.requiredTotal,requiredCompleted:progress.requiredCompleted,optionalTotal:progress.optionalTotal,optionalCompleted:progress.optionalCompleted,updatedAt:now});
+  const changed=participant.score!==progress.score||participant.progress_snapshot!==snapshot||shouldComplete;
+  await db.prepare(`UPDATE campaign_participants SET status=?,completed_at=?,progress_snapshot=?,score=?,updated_at=? WHERE id=?`).bind(nextStatus,completedAt,snapshot,progress.score,now,participant.id).run();
+  if(shouldComplete){await writeCampaignEvent(db,{campaignId:campaign.id,userId,eventType:"campaign_completed",sourceType:"system",sourceId:participant.id,idempotencyKey:`campaign:${campaign.id}:user:${userId}:completed`,metadata:{score:progress.score}});await refreshProgressionUnlocksSafely(db,userId);}
+  return {participant:{...participant,status:nextStatus,completed_at:completedAt,progress_snapshot:snapshot,score:progress.score,updated_at:now},progress,changed};
+}
+
+async function joinCampaign(db:D1Database,campaign:CampaignRow,userId:string){
+  const now=Date.now(), state=campaignWindowState(campaign,now); if(state!=="live")throw new Error("Campaign is not open for participation.");
+  const existing=await getCampaignParticipant(db,campaign.id,userId); if(existing)return syncCampaignParticipant(db,campaign,userId);
+  if(campaign.join_mode==="invite")throw new Error("This campaign requires an invitation.");
+  if(campaign.join_mode==="eligibility")throw new Error("This campaign requires eligibility approval before joining.");
+  const requirements=await evaluateCampaignRequirements(db,campaign,userId); if(!requirements.eligible)throw new Error("Campaign requirements are not met.");
+  if(campaign.participant_cap){const count=await db.prepare("SELECT COUNT(*) AS count FROM campaign_participants WHERE campaign_id=? AND status IN ('active','completed')").bind(campaign.id).first<CountRow>();if((count?.count??0)>=campaign.participant_cap)throw new Error("Campaign participant cap has been reached.");}
+  const id=crypto.randomUUID();
+  try{await db.prepare(`INSERT INTO campaign_participants (id,campaign_id,user_id,status,joined_at,completed_at,disqualified_at,qualification_snapshot,progress_snapshot,score,created_at,updated_at) VALUES (?,?,?,'active',?,NULL,NULL,?,NULL,0,?,?)`).bind(id,campaign.id,userId,now,JSON.stringify(requirements),now,now).run();}catch(error){const raced=await getCampaignParticipant(db,campaign.id,userId);if(!raced)throw error;}
+  await writeCampaignEvent(db,{campaignId:campaign.id,userId,eventType:"campaign_joined",sourceType:"system",sourceId:id,idempotencyKey:`campaign:${campaign.id}:user:${userId}:joined`,metadata:{joinMode:campaign.join_mode}});
+  return syncCampaignParticipant(db,campaign,userId);
+}
+
+function serializeCampaign(c:CampaignRow,participant:CampaignParticipantRow|null,progress:Awaited<ReturnType<typeof getCampaignMissionProgress>>|null,requirements:Awaited<ReturnType<typeof evaluateCampaignRequirements>>|null){
+  return {id:c.id,seasonId:c.season_id,slug:c.slug,name:c.name,description:c.description,campaignType:c.campaign_type,status:c.status,windowState:campaignWindowState(c),visibility:c.visibility,joinMode:c.join_mode,startsAt:c.starts_at,endsAt:c.ends_at,participantCap:c.participant_cap,displayConfig:parseJsonObject(c.display_config),requirements:requirements??null,participant:participant?{status:participant.status,joinedAt:participant.joined_at,completedAt:participant.completed_at,score:participant.score}:null,progress};
+}
+
 type ProgressionUnlockResult = {
   milestoneUnlocks: Array<{ id: string; key: string; name: string; achievedValue: number; targetValue: number; seasonId: string | null }>;
   achievementsEarned: Array<{ id: string; key: string; name: string; rarity: string; seasonId: string | null }>;
@@ -5056,7 +5162,20 @@ export default {
         aroundMe:aroundResults.map(serializeEntry),
       });
     }
-    if(request.method==="GET"&&url.pathname==="/campaigns"){const now=Date.now();const result=await env.DB.prepare("SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,display_config FROM campaigns WHERE visibility='public' AND status IN ('active','ended') AND (starts_at IS NULL OR starts_at<=?) ORDER BY starts_at DESC").bind(now).all();return jsonResponse(request,{success:true,campaigns:result.results??[]});}
+    if(request.method==="GET"&&url.pathname==="/campaigns"){
+      const result=await env.DB.prepare(`SELECT id,season_id,slug,name,description,campaign_type,status,visibility,join_mode,starts_at,ends_at,participant_cap,requirements_config,scoring_config,display_config,metadata,created_at,updated_at FROM campaigns WHERE visibility='public' AND status IN ('scheduled','active','paused','ended') ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,starts_at DESC`).all<CampaignRow>();
+      return jsonResponse(request,{success:true,campaigns:(result.results??[]).map(c=>serializeCampaign(c,null,null,null))});
+    }
+    if(request.method==="GET"&&url.pathname==="/campaigns/me"){
+      const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);
+      const result=await env.DB.prepare(`SELECT DISTINCT c.id,c.season_id,c.slug,c.name,c.description,c.campaign_type,c.status,c.visibility,c.join_mode,c.starts_at,c.ends_at,c.participant_cap,c.requirements_config,c.scoring_config,c.display_config,c.metadata,c.created_at,c.updated_at FROM campaigns c LEFT JOIN campaign_participants cp ON cp.campaign_id=c.id AND cp.user_id=? WHERE (c.visibility='public' OR cp.id IS NOT NULL) AND c.status IN ('scheduled','active','paused','ended') ORDER BY CASE c.status WHEN 'active' THEN 0 WHEN 'scheduled' THEN 1 WHEN 'paused' THEN 2 ELSE 3 END,c.starts_at DESC`).bind(auth.user.id).all<CampaignRow>();
+      const campaigns=[];for(const c of result.results??[]){let participant=await getCampaignParticipant(env.DB,c.id,auth.user.id);let progress=null;if(participant){const synced=await syncCampaignParticipant(env.DB,c,auth.user.id);participant=synced?.participant??participant;progress=synced?.progress??null;}const requirements=await evaluateCampaignRequirements(env.DB,c,auth.user.id);campaigns.push(serializeCampaign(c,participant,progress,requirements));}return jsonResponse(request,{success:true,campaigns});
+    }
+    const campaignMatch=url.pathname.match(/^\/campaigns\/([^/]+)$/);
+    if(request.method==="GET"&&campaignMatch){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const campaign=await getCampaignBySlug(env.DB,decodeURIComponent(campaignMatch[1]));if(!campaign)return jsonResponse(request,{success:false,error:"Campaign not found."},404);let participant=await getCampaignParticipant(env.DB,campaign.id,auth.user.id);if(campaign.visibility==="private"&&!participant)return jsonResponse(request,{success:false,error:"Campaign not found."},404);let progress=null;if(participant){const synced=await syncCampaignParticipant(env.DB,campaign,auth.user.id);participant=synced?.participant??participant;progress=synced?.progress??null;}else{progress=await getCampaignMissionProgress(env.DB,campaign,auth.user.id);}const requirements=await evaluateCampaignRequirements(env.DB,campaign,auth.user.id);return jsonResponse(request,{success:true,campaign:serializeCampaign(campaign,participant,progress,requirements)});}
+    const campaignActionMatch=url.pathname.match(/^\/campaigns\/([^/]+)\/(join|sync)$/);
+    if(request.method==="POST"&&campaignActionMatch){try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const campaign=await getCampaignBySlug(env.DB,decodeURIComponent(campaignActionMatch[1]));if(!campaign)return jsonResponse(request,{success:false,error:"Campaign not found."},404);if(campaign.visibility==="private"&&!await getCampaignParticipant(env.DB,campaign.id,auth.user.id))return jsonResponse(request,{success:false,error:"Campaign not found."},404);const action=campaignActionMatch[2];let synced;if(action==="join")synced=await joinCampaign(env.DB,campaign,auth.user.id);else{let participant=await getCampaignParticipant(env.DB,campaign.id,auth.user.id);if(!participant&&campaign.join_mode==="auto")synced=await joinCampaign(env.DB,campaign,auth.user.id);else if(!participant)return jsonResponse(request,{success:false,error:"Join the campaign before syncing progress."},409);else synced=await syncCampaignParticipant(env.DB,campaign,auth.user.id);}const participant=synced?.participant??await getCampaignParticipant(env.DB,campaign.id,auth.user.id);const progress=synced?.progress??(participant?await getCampaignMissionProgress(env.DB,campaign,auth.user.id):null);const requirements=await evaluateCampaignRequirements(env.DB,campaign,auth.user.id);return jsonResponse(request,{success:true,campaign:serializeCampaign(campaign,participant,progress,requirements)});}catch(error){return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to update campaign."},409);}}
+
     if(request.method==="GET"&&url.pathname==="/eligibility/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.result,e.passed_required,e.total_required,e.reason_summary,e.evaluated_at,e.frozen,p.id AS program_id,p.key,p.name,p.program_type,p.version,p.status,p.frozen_at FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,evaluations:result.results??[]});}
     if(request.method==="GET"&&url.pathname==="/rewards/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.amount_atomic,e.token_id,e.metadata,e.status,e.earned_at,e.approved_at,e.claimable_at,e.claimed_at,e.cancelled_at,p.key,p.name,p.reward_type,p.asset_chain_id,p.asset_address,p.asset_symbol,p.distribution_mode FROM reward_entitlements e JOIN reward_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.earned_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,entitlements:result.results??[]});}
     if(request.method==="POST"&&url.pathname==="/admin/referrals/evaluate"){try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const admin=await getActiveAdmin(env.DB,auth.user.id);if(!admin||admin.role!=="super_admin")return jsonResponse(request,{success:false,authorized:false},403);const body=await request.json() as {userId?:string};const userId=body.userId?.trim()??"";if(!userId)return jsonResponse(request,{success:false,error:"User ID is required."},400);const season=await getCurrentSeason(env.DB);const result=await evaluateReferralQuality(env.DB,userId,season?.id??null);await writeAdminAudit(env.DB,auth.user.id,"referral.evaluate","user",userId,null,result,request.headers.get("cf-ray"));return jsonResponse(request,{success:true,result});}catch(error){return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to evaluate referral."},409);}}
