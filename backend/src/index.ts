@@ -2004,6 +2004,162 @@ function serializeCampaign(c:CampaignRow,participant:CampaignParticipantRow|null
   return {id:c.id,seasonId:c.season_id,slug:c.slug,name:c.name,description:c.description,campaignType:c.campaign_type,status:c.status,windowState:campaignWindowState(c),visibility:c.visibility,joinMode:c.join_mode,startsAt:c.starts_at,endsAt:c.ends_at,participantCap:c.participant_cap,displayConfig:parseJsonObject(c.display_config),requirements:requirements??null,participant:participant?{status:participant.status,joinedAt:participant.joined_at,completedAt:participant.completed_at,score:participant.score}:null,progress};
 }
 
+
+type EligibilityProgramStatus = "draft" | "active" | "paused" | "frozen" | "archived";
+type EligibilityResult = "eligible" | "ineligible" | "review" | "excluded";
+
+interface EligibilityProgramRow {
+  id: string; season_id: string | null; campaign_id: string | null; key: string; name: string;
+  description: string | null; program_type: string; version: number; status: EligibilityProgramStatus;
+  starts_at: number | null; ends_at: number | null; frozen_at: number | null; created_at: number; updated_at: number;
+}
+
+interface EligibilityRuleRow {
+  id: string; program_id: string; key: string; name: string; rule_type: string; operator: string;
+  target_value: number | null; config: string | null; required: number; sort_order: number; created_at: number;
+}
+
+interface EligibilityEvaluationRow {
+  id: string; program_id: string; user_id: string; result: EligibilityResult; passed_required: number;
+  total_required: number; reason_summary: string | null; evaluated_at: number; evaluation_key: string;
+  frozen: number; created_at: number;
+}
+
+type EligibilityRuleOutcome = {
+  ruleId: string; key: string; name: string; ruleType: string; operator: string; required: boolean;
+  targetValue: number | null; observedValue: number | null; passed: boolean; reason: string; evidence: Record<string, unknown>;
+};
+
+function eligibilityProgramOpen(program: EligibilityProgramRow, now = Date.now()): boolean {
+  return program.status === "active" &&
+    (program.starts_at === null || program.starts_at <= now) &&
+    (program.ends_at === null || program.ends_at > now);
+}
+
+function compareEligibilityValue(operator: string, observed: number, target: number | null): boolean {
+  if (operator === "exists") return observed > 0;
+  if (operator === "not_exists") return observed <= 0;
+  if (target === null) return false;
+  if (operator === "gte") return observed >= target;
+  if (operator === "gt") return observed > target;
+  if (operator === "eq") return observed === target;
+  if (operator === "lte") return observed <= target;
+  if (operator === "lt") return observed < target;
+  return false;
+}
+
+async function evaluateEligibilityRule(db: D1Database, program: EligibilityProgramRow, rule: EligibilityRuleRow, userId: string): Promise<EligibilityRuleOutcome> {
+  const config = parseJsonObject(rule.config);
+  let observed = 0;
+  let evidence: Record<string, unknown> = {};
+  const seasonId = program.season_id;
+
+  if (rule.rule_type === "lifetime_xp") {
+    observed = (await getXpBalance(db, userId))?.lifetime_xp ?? 0;
+  } else if (rule.rule_type === "season_xp") {
+    observed = seasonId ? (await getSeasonParticipant(db, seasonId, userId))?.season_xp ?? 0 : 0;
+    evidence = { seasonId };
+  } else if (rule.rule_type === "mission_count") {
+    const row = await db.prepare("SELECT COUNT(*) AS count FROM mission_completions WHERE user_id=? AND status='rewarded' AND (? IS NULL OR season_id=?)")
+      .bind(userId, seasonId, seasonId).first<CountRow>();
+    observed = row?.count ?? 0; evidence = { seasonId };
+  } else if (rule.rule_type === "qualified_referrals") {
+    const row = await db.prepare("SELECT COUNT(*) AS count FROM referral_relationships WHERE referrer_user_id=? AND status='qualified'").bind(userId).first<CountRow>();
+    observed = row?.count ?? 0;
+  } else if (rule.rule_type === "genesis_balance") {
+    observed = (await getGenesisOwnership(db, userId))?.balance ?? 0;
+  } else if (rule.rule_type === "campaign_score") {
+    const configuredCampaignId = typeof config.campaignId === "string" ? config.campaignId : program.campaign_id;
+    const configuredSlug = typeof config.campaignSlug === "string" ? config.campaignSlug : null;
+    let participant: CampaignParticipantRow | null = null;
+    if (configuredCampaignId) participant = await getCampaignParticipant(db, configuredCampaignId, userId);
+    else if (configuredSlug) {
+      const campaign = await getCampaignBySlug(db, configuredSlug);
+      if (campaign) participant = await getCampaignParticipant(db, campaign.id, userId);
+    }
+    observed = participant?.score ?? 0;
+    evidence = { campaignId: configuredCampaignId ?? null, campaignSlug: configuredSlug, participantStatus: participant?.status ?? null };
+  } else if (rule.rule_type === "trusted_activity") {
+    const eventType = typeof config.eventType === "string" ? config.eventType : null;
+    const sourceType = typeof config.sourceType === "string" ? config.sourceType : null;
+    const row = await db.prepare(`SELECT COUNT(*) AS count FROM trusted_activity_events WHERE user_id=? AND (? IS NULL OR season_id=?) AND (? IS NULL OR event_type=?) AND (? IS NULL OR source_type=?)`)
+      .bind(userId, seasonId, seasonId, eventType, eventType, sourceType, sourceType).first<CountRow>();
+    observed = row?.count ?? 0; evidence = { seasonId, eventType, sourceType };
+  } else {
+    return { ruleId: rule.id, key: rule.key, name: rule.name, ruleType: rule.rule_type, operator: rule.operator, required: rule.required === 1, targetValue: rule.target_value, observedValue: null, passed: false, reason: "This rule requires manual review.", evidence: { config } };
+  }
+
+  const passed = compareEligibilityValue(rule.operator, observed, rule.target_value);
+  return {
+    ruleId: rule.id, key: rule.key, name: rule.name, ruleType: rule.rule_type, operator: rule.operator,
+    required: rule.required === 1, targetValue: rule.target_value, observedValue: observed, passed,
+    reason: passed ? "Requirement satisfied." : "Requirement not yet satisfied.", evidence,
+  };
+}
+
+async function getLatestEligibilityEvaluation(db: D1Database, programId: string, userId: string): Promise<EligibilityEvaluationRow | null> {
+  return db.prepare(`SELECT id,program_id,user_id,result,passed_required,total_required,reason_summary,evaluated_at,evaluation_key,frozen,created_at FROM eligibility_evaluations WHERE program_id=? AND user_id=? ORDER BY evaluated_at DESC LIMIT 1`)
+    .bind(programId, userId).first<EligibilityEvaluationRow>();
+}
+
+async function serializeEligibilityEvaluation(db: D1Database, program: EligibilityProgramRow, evaluation: EligibilityEvaluationRow | null) {
+  let rules: Record<string, unknown>[] = [];
+  if (evaluation) {
+    const result = await db.prepare(`SELECT rr.rule_id,rr.passed,rr.observed_value,rr.reason,rr.evidence,r.key,r.name,r.rule_type,r.operator,r.target_value,r.required,r.sort_order FROM eligibility_rule_results rr JOIN eligibility_rules r ON r.id=rr.rule_id WHERE rr.evaluation_id=? ORDER BY r.sort_order ASC,r.created_at ASC`).bind(evaluation.id).all();
+    rules = (result.results ?? []) as Record<string, unknown>[];
+  }
+  return {
+    program: { id: program.id, key: program.key, name: program.name, description: program.description, programType: program.program_type, version: program.version, status: program.status, seasonId: program.season_id, campaignId: program.campaign_id, startsAt: program.starts_at, endsAt: program.ends_at, frozenAt: program.frozen_at },
+    evaluation: evaluation ? { id: evaluation.id, result: evaluation.result, passedRequired: evaluation.passed_required, totalRequired: evaluation.total_required, reasonSummary: evaluation.reason_summary, evaluatedAt: evaluation.evaluated_at, frozen: evaluation.frozen === 1, rules: rules.map(r => ({ ruleId: r.rule_id, key: r.key, name: r.name, ruleType: r.rule_type, operator: r.operator, targetValue: r.target_value, required: Number(r.required) === 1, passed: Number(r.passed) === 1, observedValue: r.observed_value === null ? null : Number(r.observed_value), reason: r.reason, evidence: parseJsonObject(typeof r.evidence === "string" ? r.evidence : null) })) } : null,
+  };
+}
+
+async function evaluateEligibilityProgram(db: D1Database, program: EligibilityProgramRow, userId: string) {
+  if (program.status === "frozen") {
+    const frozen = await getLatestEligibilityEvaluation(db, program.id, userId);
+    return serializeEligibilityEvaluation(db, program, frozen);
+  }
+  if (!eligibilityProgramOpen(program)) throw new Error("Eligibility program is not open for evaluation.");
+
+  const ruleRows = await db.prepare(`SELECT id,program_id,key,name,rule_type,operator,target_value,config,required,sort_order,created_at FROM eligibility_rules WHERE program_id=? ORDER BY sort_order ASC,created_at ASC`).bind(program.id).all<EligibilityRuleRow>();
+  const rules = ruleRows.results ?? [];
+  const outcomes: EligibilityRuleOutcome[] = [];
+  for (const rule of rules) outcomes.push(await evaluateEligibilityRule(db, program, rule, userId));
+
+  const required = outcomes.filter(r => r.required);
+  const passedRequired = required.filter(r => r.passed).length;
+  const manualReviewRequired = required.some(r => r.observedValue === null);
+  const result: EligibilityResult = manualReviewRequired ? "review" : (passedRequired === required.length ? "eligible" : "ineligible");
+  const reasonSummary = result === "eligible" ? "All required eligibility rules are satisfied." : result === "review" ? "One or more required rules need manual review." : `${passedRequired} of ${required.length} required rules are satisfied.`;
+  const fingerprintInput = JSON.stringify(outcomes.map(r => [r.ruleId, r.passed, r.observedValue]));
+  const fingerprint = await sha256(fingerprintInput);
+  const evaluationKey = `eligibility:${program.id}:v${program.version}:user:${userId}:${fingerprint}`;
+  let evaluation = await db.prepare(`SELECT id,program_id,user_id,result,passed_required,total_required,reason_summary,evaluated_at,evaluation_key,frozen,created_at FROM eligibility_evaluations WHERE evaluation_key=? LIMIT 1`).bind(evaluationKey).first<EligibilityEvaluationRow>();
+
+  if (!evaluation) {
+    const now = Date.now(), id = crypto.randomUUID();
+    try {
+      await db.prepare(`INSERT INTO eligibility_evaluations (id,program_id,user_id,result,passed_required,total_required,reason_summary,evaluated_at,evaluation_key,frozen,created_at) VALUES (?,?,?,?,?,?,?,?,?,0,?)`)
+        .bind(id, program.id, userId, result, passedRequired, required.length, reasonSummary, now, evaluationKey, now).run();
+      for (const outcome of outcomes) {
+        await db.prepare(`INSERT INTO eligibility_rule_results (evaluation_id,rule_id,passed,observed_value,reason,evidence) VALUES (?,?,?,?,?,?)`)
+          .bind(id, outcome.ruleId, outcome.passed ? 1 : 0, outcome.observedValue === null ? null : String(outcome.observedValue), outcome.reason, JSON.stringify(outcome.evidence)).run();
+      }
+      evaluation = await getLatestEligibilityEvaluation(db, program.id, userId);
+    } catch (error) {
+      const raced = await db.prepare(`SELECT id,program_id,user_id,result,passed_required,total_required,reason_summary,evaluated_at,evaluation_key,frozen,created_at FROM eligibility_evaluations WHERE evaluation_key=? LIMIT 1`).bind(evaluationKey).first<EligibilityEvaluationRow>();
+      if (!raced) throw error;
+      evaluation = raced;
+    }
+  }
+  return serializeEligibilityEvaluation(db, program, evaluation);
+}
+
+async function getVisibleEligibilityPrograms(db: D1Database): Promise<EligibilityProgramRow[]> {
+  const result = await db.prepare(`SELECT id,season_id,campaign_id,key,name,description,program_type,version,status,starts_at,ends_at,frozen_at,created_at,updated_at FROM eligibility_programs WHERE status IN ('active','frozen') ORDER BY created_at DESC`).all<EligibilityProgramRow>();
+  return result.results ?? [];
+}
+
 type ProgressionUnlockResult = {
   milestoneUnlocks: Array<{ id: string; key: string; name: string; achievedValue: number; targetValue: number; seasonId: string | null }>;
   achievementsEarned: Array<{ id: string; key: string; name: string; rarity: string; seasonId: string | null }>;
@@ -5176,7 +5332,14 @@ export default {
     const campaignActionMatch=url.pathname.match(/^\/campaigns\/([^/]+)\/(join|sync)$/);
     if(request.method==="POST"&&campaignActionMatch){try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const campaign=await getCampaignBySlug(env.DB,decodeURIComponent(campaignActionMatch[1]));if(!campaign)return jsonResponse(request,{success:false,error:"Campaign not found."},404);if(campaign.visibility==="private"&&!await getCampaignParticipant(env.DB,campaign.id,auth.user.id))return jsonResponse(request,{success:false,error:"Campaign not found."},404);const action=campaignActionMatch[2];let synced;if(action==="join")synced=await joinCampaign(env.DB,campaign,auth.user.id);else{let participant=await getCampaignParticipant(env.DB,campaign.id,auth.user.id);if(!participant&&campaign.join_mode==="auto")synced=await joinCampaign(env.DB,campaign,auth.user.id);else if(!participant)return jsonResponse(request,{success:false,error:"Join the campaign before syncing progress."},409);else synced=await syncCampaignParticipant(env.DB,campaign,auth.user.id);}const participant=synced?.participant??await getCampaignParticipant(env.DB,campaign.id,auth.user.id);const progress=synced?.progress??(participant?await getCampaignMissionProgress(env.DB,campaign,auth.user.id):null);const requirements=await evaluateCampaignRequirements(env.DB,campaign,auth.user.id);return jsonResponse(request,{success:true,campaign:serializeCampaign(campaign,participant,progress,requirements)});}catch(error){return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to update campaign."},409);}}
 
-    if(request.method==="GET"&&url.pathname==="/eligibility/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.result,e.passed_required,e.total_required,e.reason_summary,e.evaluated_at,e.frozen,p.id AS program_id,p.key,p.name,p.program_type,p.version,p.status,p.frozen_at FROM eligibility_evaluations e JOIN eligibility_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.evaluated_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,evaluations:result.results??[]});}
+    if(request.method==="POST"&&url.pathname==="/eligibility/sync"){
+      try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const programs=await getVisibleEligibilityPrograms(env.DB);const evaluations=[];for(const program of programs)evaluations.push(await evaluateEligibilityProgram(env.DB,program,auth.user.id));return jsonResponse(request,{success:true,evaluations});}
+      catch(error){console.error("Eligibility sync failed:",error);return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to evaluate eligibility."},409);}
+    }
+    if(request.method==="GET"&&url.pathname==="/eligibility/me"){
+      const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);
+      const programs=await getVisibleEligibilityPrograms(env.DB);const evaluations=[];for(const program of programs)evaluations.push(await serializeEligibilityEvaluation(env.DB,program,await getLatestEligibilityEvaluation(env.DB,program.id,auth.user.id)));return jsonResponse(request,{success:true,evaluations});
+    }
     if(request.method==="GET"&&url.pathname==="/rewards/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const result=await env.DB.prepare("SELECT e.id,e.amount_atomic,e.token_id,e.metadata,e.status,e.earned_at,e.approved_at,e.claimable_at,e.claimed_at,e.cancelled_at,p.key,p.name,p.reward_type,p.asset_chain_id,p.asset_address,p.asset_symbol,p.distribution_mode FROM reward_entitlements e JOIN reward_programs p ON p.id=e.program_id WHERE e.user_id=? ORDER BY e.earned_at DESC").bind(auth.user.id).all();return jsonResponse(request,{success:true,entitlements:result.results??[]});}
     if(request.method==="POST"&&url.pathname==="/admin/referrals/evaluate"){try{const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const admin=await getActiveAdmin(env.DB,auth.user.id);if(!admin||admin.role!=="super_admin")return jsonResponse(request,{success:false,authorized:false},403);const body=await request.json() as {userId?:string};const userId=body.userId?.trim()??"";if(!userId)return jsonResponse(request,{success:false,error:"User ID is required."},400);const season=await getCurrentSeason(env.DB);const result=await evaluateReferralQuality(env.DB,userId,season?.id??null);await writeAdminAudit(env.DB,auth.user.id,"referral.evaluate","user",userId,null,result,request.headers.get("cf-ray"));return jsonResponse(request,{success:true,result});}catch(error){return jsonResponse(request,{success:false,error:error instanceof Error?error.message:"Unable to evaluate referral."},409);}}
     if(request.method==="GET"&&url.pathname==="/admin/audit"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);const admin=await getActiveAdmin(env.DB,auth.user.id);if(!admin||admin.role!=="super_admin")return jsonResponse(request,{success:false,authorized:false},403);const result=await env.DB.prepare("SELECT id,admin_user_id,action,target_type,target_id,reason,old_value,new_value,request_id,created_at FROM admin_audit_log ORDER BY created_at DESC LIMIT 100").all();return jsonResponse(request,{success:true,entries:result.results??[]});}

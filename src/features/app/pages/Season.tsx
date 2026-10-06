@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   RefreshCw,
   ShieldCheck,
+  ShieldQuestion,
   Sparkles,
   Target,
   Trophy,
@@ -20,6 +21,11 @@ import { useAuth } from "@/shared/auth/AuthProvider";
 import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
 import { getMyNextMove, type NextMove } from "@/shared/api/nextMove";
 import { getSeasonLeaderboard, type LeaderboardMe } from "@/shared/api/leaderboard";
+import {
+  getMyEligibility,
+  syncMyEligibility,
+  type EligibilityEvaluationRecord,
+} from "@/shared/api/eligibility";
 import {
   getCurrentSeason,
   getMyMissions,
@@ -92,6 +98,8 @@ export default function Season() {
   const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
   const [nextMove, setNextMove] = useState<NextMove | null>(null);
   const [leaderboardMe, setLeaderboardMe] = useState<LeaderboardMe | null>(null);
+  const [eligibility, setEligibility] = useState<EligibilityEvaluationRecord[]>([]);
+  const [syncingEligibility, setSyncingEligibility] = useState(false);
   const [loading, setLoading] = useState(true);
   const [joining, setJoining] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -102,11 +110,12 @@ export default function Season() {
 
     try {
       if (isAuthenticated) {
-        const [result, progressionResult, nextMoveResult, leaderboardResult] = await Promise.all([
+        const [result, progressionResult, nextMoveResult, leaderboardResult, eligibilityResult] = await Promise.all([
           getMyMissions(),
           getMyProgression(),
           getMyNextMove(),
           getSeasonLeaderboard(),
+          getMyEligibility(),
         ]);
         setSeason(result.season);
         setParticipation(result.participation);
@@ -114,6 +123,7 @@ export default function Season() {
         setProgression(progressionResult.progression);
         setNextMove(nextMoveResult.nextMove);
         setLeaderboardMe(leaderboardResult.me);
+        setEligibility(eligibilityResult.evaluations);
       } else {
         const [seasonResult, missionResult] = await Promise.all([
           getCurrentSeason(),
@@ -125,6 +135,7 @@ export default function Season() {
         setProgression(null);
         setNextMove(null);
         setLeaderboardMe(null);
+        setEligibility([]);
       }
     } catch (loadError) {
       setError(
@@ -153,6 +164,25 @@ export default function Season() {
 
   const displayNextMove = useMemo(() => visibleNextMove(nextMove), [nextMove]);
 
+  const airdropEligibility = useMemo(
+    () => eligibility.find((item) => item.program.programType === "airdrop") ?? null,
+    [eligibility],
+  );
+
+  const handleEligibilitySync = async () => {
+    if (!isAuthenticated) return;
+    setSyncingEligibility(true);
+    setError(null);
+    try {
+      const result = await syncMyEligibility();
+      setEligibility(result.evaluations);
+    } catch (syncError) {
+      setError(syncError instanceof Error ? syncError.message : "Unable to refresh eligibility.");
+    } finally {
+      setSyncingEligibility(false);
+    }
+  };
+
   const handleJoin = async () => {
     if (!isAuthenticated) return;
 
@@ -164,11 +194,12 @@ export default function Season() {
       setSeason(result.season);
       setParticipation(result.participation);
 
-      const [missionResult, progressionResult, nextMoveResult, leaderboardResult] = await Promise.all([
+      const [missionResult, progressionResult, nextMoveResult, leaderboardResult, eligibilityResult] = await Promise.all([
         getMyMissions(),
         getMyProgression(),
         getMyNextMove(),
         getSeasonLeaderboard(),
+        getMyEligibility(),
       ]);
       setSeason(missionResult.season);
       setParticipation(missionResult.participation);
@@ -176,6 +207,7 @@ export default function Season() {
       setProgression(progressionResult.progression);
       setNextMove(nextMoveResult.nextMove);
       setLeaderboardMe(leaderboardResult.me);
+      setEligibility(eligibilityResult.evaluations);
     } catch (joinError) {
       setError(
         joinError instanceof Error
@@ -285,6 +317,80 @@ export default function Season() {
           <small>View leaderboard <ArrowUpRight size={12} /></small>
         </Link>
       </section>
+
+      {isAuthenticated ? (
+        <section className={styles.eligibilityCard}>
+          <div className={styles.eligibilityHeader}>
+            <div className={styles.eligibilityTitle}>
+              <span className={styles.eligibilityIcon}><ShieldCheck size={20} /></span>
+              <div>
+                <div className={styles.eyebrowDark}>AIRDROP ELIGIBILITY</div>
+                <h2>{airdropEligibility?.program.name ?? "Eligibility record"}</h2>
+              </div>
+            </div>
+            <button
+              className={styles.eligibilitySync}
+              type="button"
+              onClick={() => void handleEligibilitySync()}
+              disabled={syncingEligibility}
+            >
+              <RefreshCw size={15} className={syncingEligibility ? styles.spin : undefined} />
+              {syncingEligibility ? "Checking…" : "Check eligibility"}
+            </button>
+          </div>
+
+          {airdropEligibility?.evaluation ? (
+            <>
+              <div className={styles.eligibilitySummary}>
+                <div className={`${styles.eligibilityStatus} ${styles[`eligibility_${airdropEligibility.evaluation.result}`]}`}>
+                  {airdropEligibility.evaluation.result === "eligible" ? <CheckCircle2 size={18} /> : <ShieldQuestion size={18} />}
+                  <div>
+                    <span>Current result</span>
+                    <strong>{airdropEligibility.evaluation.result === "eligible" ? "Eligible" : airdropEligibility.evaluation.result === "review" ? "Under review" : airdropEligibility.evaluation.result === "excluded" ? "Excluded" : "Not eligible yet"}</strong>
+                  </div>
+                </div>
+                <div className={styles.requiredScore}>
+                  <span>Required checks</span>
+                  <strong>{airdropEligibility.evaluation.passedRequired}/{airdropEligibility.evaluation.totalRequired}</strong>
+                </div>
+                <div className={styles.evaluatedAt}>
+                  <span>Last evaluated</span>
+                  <strong>{new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(new Date(airdropEligibility.evaluation.evaluatedAt))}</strong>
+                </div>
+              </div>
+
+              <div className={styles.ruleGrid}>
+                {airdropEligibility.evaluation.rules.map((rule) => (
+                  <div className={styles.ruleItem} key={rule.ruleId}>
+                    <span className={`${styles.ruleMark} ${rule.passed ? styles.rulePassed : ""}`}>
+                      {rule.passed ? <CheckCircle2 size={15} /> : <CircleDot size={15} />}
+                    </span>
+                    <div className={styles.ruleCopy}>
+                      <div className={styles.ruleName}>
+                        <strong>{rule.name}</strong>
+                        <span>{rule.required ? "Required" : "Optional"}</span>
+                      </div>
+                      <p>{rule.passed ? "Verified" : "Not yet satisfied"}{rule.observedValue !== null && rule.targetValue !== null ? ` · ${rule.observedValue.toLocaleString()} / ${rule.targetValue.toLocaleString()}` : ""}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className={styles.eligibilityEmpty}>
+              <ShieldQuestion size={22} />
+              <div>
+                <strong>No eligibility evaluation yet</strong>
+                <p>Check your eligibility to evaluate your current verified participation against the active rules.</p>
+              </div>
+            </div>
+          )}
+
+          <div className={styles.eligibilityFoot}>
+            Eligibility is a verified participation check, not a token allocation or payment promise. Final allocation and distribution remain separate.
+          </div>
+        </section>
+      ) : null}
 
       {isAuthenticated && progression?.currentLevel ? (
         <>
