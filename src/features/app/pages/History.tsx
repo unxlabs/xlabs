@@ -5,6 +5,7 @@ import { formatUnits } from "viem";
 
 import { getMyOnchainActivity, type OnchainActivity } from "@/shared/api/activity";
 import { getMyPositions, type IndexedPosition } from "@/shared/api/positions";
+import { getPositionStatusLabel } from "@/shared/positions/lifecycle";
 import { useAuth } from "@/shared/auth/AuthProvider";
 import styles from "./History.module.css";
 
@@ -39,7 +40,7 @@ function parseEvidence(raw: string | null): ParsedEvidence {
 
 function formatDate(value: number | null | undefined) {
   if (!value) return "—";
-  return new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+  return new Intl.DateTimeFormat("en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
 }
 
 function formatAtomic(value: string | undefined, decimals: number) {
@@ -47,15 +48,12 @@ function formatAtomic(value: string | undefined, decimals: number) {
   try {
     const amount = Number(formatUnits(BigInt(value), decimals));
     if (!Number.isFinite(amount)) return "0";
-    return new Intl.NumberFormat(undefined, { maximumFractionDigits: 8 }).format(amount);
+    return new Intl.NumberFormat("en-US", { maximumFractionDigits: 8 }).format(amount);
   } catch { return "0"; }
 }
 
 function positionStatus(position: IndexedPosition) {
-  if (position.productType === "earn") {
-    return ({ 0: "None", 1: "Active", 2: "Withdrawal requested", 3: "Ready to claim", 4: "Completed" } as Record<number, string>)[position.status] || `Status ${position.status}`;
-  }
-  return ({ 0: "None", 1: "Active", 2: "Unlock requested", 3: "Claimable", 4: "Withdrawn" } as Record<number, string>)[position.status] || `Status ${position.status}`;
+  return getPositionStatusLabel(position);
 }
 
 function HistoryContent() {

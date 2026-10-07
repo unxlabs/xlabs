@@ -33,6 +33,7 @@ import {
 
 import styles from "./Earn.module.css";
 import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+import { getLifecycleLabel } from "../../../shared/positions/lifecycle";
 
 
 import {
@@ -142,7 +143,7 @@ function formatDate(timestamp: bigint) {
 
   if (Number.isNaN(date.getTime())) return "—";
 
-  return date.toLocaleDateString(undefined, {
+  return date.toLocaleDateString("en-US", {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -1314,13 +1315,7 @@ export default function Earn() {
                       item.positionId === Number(position.id),
                     );
                     if (!indexed) return null;
-                    const lifecycle = indexed.withdrawnAtChain
-                      ? `Completed ${new Date(indexed.withdrawnAtChain * 1000).toLocaleDateString()}`
-                      : indexed.claimableAtChain
-                        ? `Claimable since ${new Date(indexed.claimableAtChain * 1000).toLocaleDateString()}`
-                        : indexed.withdrawalRequestedAtChain
-                          ? `Requested ${new Date(indexed.withdrawalRequestedAtChain * 1000).toLocaleDateString()}`
-                          : "Active on BNB Chain";
+                    const lifecycle = getLifecycleLabel(indexed);
                     return <div className={styles.lifecycleLine}><span>Lifecycle</span><strong>{lifecycle}</strong></div>;
                   })()}
 

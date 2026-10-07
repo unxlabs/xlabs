@@ -72,6 +72,7 @@ import {
 
 import styles from "./Stake.module.css";
 import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+import { getLifecycleLabel } from "../../../shared/positions/lifecycle";
 
 
 
@@ -3278,15 +3279,7 @@ export default function Stake() {
                           item.positionId === Number(position.id),
                         );
                         if (!indexed) return null;
-                        const lifecycle = indexed.withdrawnAtChain
-                          ? `Withdrawn ${new Date(indexed.withdrawnAtChain * 1000).toLocaleDateString()}`
-                          : indexed.claimableAtChain
-                            ? `Claimable since ${new Date(indexed.claimableAtChain * 1000).toLocaleDateString()}`
-                            : indexed.withdrawalRequestedAtChain
-                              ? `Unlock requested ${new Date(indexed.withdrawalRequestedAtChain * 1000).toLocaleDateString()}`
-                              : indexed.lockEndsAtChain
-                                ? `Lock ends ${new Date(indexed.lockEndsAtChain * 1000).toLocaleDateString()}`
-                                : "Active on BNB Chain";
+                        const lifecycle = getLifecycleLabel(indexed);
                         return <div className={styles.lifecycleLine}><span>Lifecycle</span><strong>{lifecycle}</strong></div>;
                       })()}
 
