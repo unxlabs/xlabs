@@ -312,7 +312,7 @@ async function healthSnapshot(env: Env) {
     success: status !== "unhealthy", service: "unlimited-x-labs-indexer", status, chainId: CHAIN_ID,
     trackedContracts: CONTRACTS.length, confirmations: Number(CONFIRMATIONS), rpc: { head: rpcHead, finalizedHead, error: rpcError },
     sync: { liveCursor, backfillCursor: s?.backfill_cursor_block ?? null, lagBlocks, lastRunAt: s?.last_run_at ?? null, lastSuccessAt: s?.last_success_at ?? null, lastSuccessAgeMs, lastError: s?.last_error ?? null, running: activeRun !== null },
-    counts, positions: positions.results ?? [], positionScans: scans, recovery: { configured: Boolean(recoveryToken(env)), endpoint: "/recover" }, checkedAt: now,
+    counts, positions: positions.results ?? [], positionScans: scans, recovery: { configured: Boolean(recoveryToken(env)), endpoint: "/recover", autoRecovery: { enabled: true, trigger: "unhealthy_after_scheduled_run", maxRetriesPerCron: 1, cronIntervalMinutes: 5 } }, checkedAt: now,
   };
 }
 
@@ -338,6 +338,48 @@ export default {
     return json({ success: false, error: "Not Found" }, 404);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(startIndexer(env).then((r) => console.log("Indexer run complete", r)).catch((e) => console.error("Indexer run failed", e)));
+    ctx.waitUntil((async () => {
+      const startedAt = Date.now();
+      let firstError: string | null = null;
+
+      try {
+        const result = await startIndexer(env);
+        console.log("Indexer scheduled run complete", { attempt: 1, result });
+      } catch (error) {
+        firstError = error instanceof Error ? error.message : String(error);
+        console.error("INDEXER_ALERT scheduled run failed", { attempt: 1, error: firstError });
+      }
+
+      let health = await healthSnapshot(env);
+      if (health.status !== "unhealthy") {
+        console.log("Indexer scheduled health", { status: health.status, lagBlocks: health.sync.lagBlocks, durationMs: Date.now() - startedAt });
+        return;
+      }
+
+      console.warn("INDEXER_AUTO_RECOVERY triggered", {
+        reason: firstError ? "scheduled_run_failed" : "unhealthy_after_scheduled_run",
+        lagBlocks: health.sync.lagBlocks,
+        lastError: health.sync.lastError,
+      });
+
+      try {
+        const recoveryResult = await startIndexer(env);
+        health = await healthSnapshot(env);
+        if (health.status === "unhealthy") {
+          console.error("INDEXER_ALERT auto recovery completed but service remains unhealthy", {
+            recoveryResult, lagBlocks: health.sync.lagBlocks, lastError: health.sync.lastError, durationMs: Date.now() - startedAt,
+          });
+          return;
+        }
+        console.log("INDEXER_AUTO_RECOVERY succeeded", {
+          recoveryResult, status: health.status, lagBlocks: health.sync.lagBlocks, durationMs: Date.now() - startedAt,
+        });
+      } catch (error) {
+        console.error("INDEXER_ALERT auto recovery failed", {
+          error: error instanceof Error ? error.message : String(error),
+          firstError, durationMs: Date.now() - startedAt,
+        });
+      }
+    })());
   },
 };
