@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "unlimited-x-labs-indexer",
+  "main": "src/indexer.ts",
+  "compatibility_date": "2026-09-27",
+  "workers_dev": true,
+  "observability": { "enabled": true },
+  "triggers": { "crons": ["*/5 * * * *"] },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "unlimited-x-labs-db",
+      "database_id": "f573b6b6-5b5d-4812-b793-b11769be6041"
+    }
+  ]
+}
