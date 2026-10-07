@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
   useAccount,
@@ -19,12 +19,16 @@ import {
   getGenesisTier,
 } from "@/features/app/genesis/genesisContract";
 
+import { useAuth } from "@/shared/auth/AuthProvider";
+
 import styles from "./Genesis.module.css";
 
 export default function Genesis() {
   const { address, isConnected } = useAccount();
   const chainId = useChainId();
   const { switchChain } = useSwitchChain();
+  const { isAuthenticated, syncIntegration } = useAuth();
+  const syncedMintHashRef = useRef<string | null>(null);
 
   const [quantity, setQuantity] = useState(1);
   const [errorMessage, setErrorMessage] = useState("");
@@ -129,18 +133,33 @@ export default function Genesis() {
   }, [approveConfirmed, refetchAllowance]);
 
   useEffect(() => {
-    if (!mintConfirmed) return;
+    if (!mintConfirmed || !mintHash) return;
 
     void refetchAllowance();
     void refetchPassBalance();
     void refetchRemaining();
     void refetchPrice();
+
+    if (!isAuthenticated) return;
+
+    const normalizedMintHash = mintHash.toLowerCase();
+    if (syncedMintHashRef.current === normalizedMintHash) return;
+
+    syncedMintHashRef.current = normalizedMintHash;
+
+    void syncIntegration().catch((syncError) => {
+      syncedMintHashRef.current = null;
+      console.error("Genesis post-mint integration sync failed:", syncError);
+    });
   }, [
+    isAuthenticated,
     mintConfirmed,
+    mintHash,
     refetchAllowance,
     refetchPassBalance,
     refetchRemaining,
     refetchPrice,
+    syncIntegration,
   ]);
 
   useEffect(() => {

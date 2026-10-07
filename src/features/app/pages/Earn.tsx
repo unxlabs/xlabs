@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
@@ -30,6 +30,8 @@ import {
   Wallet,
   Zap,
 } from "lucide-react";
+
+import { useAuth } from "@/shared/auth/AuthProvider";
 
 import styles from "./Earn.module.css";
 
@@ -152,6 +154,9 @@ function formatDate(timestamp: bigint) {
    ========================================================= */
 
 export default function Earn() {
+  const { isAuthenticated, syncIntegration } = useAuth();
+  const txActionRef = useRef<"approve" | "deposit" | "requestWithdrawal" | "withdraw" | null>(null);
+  const syncedTxHashRef = useRef<string | null>(null);
   const { address, isConnected } = useAccount();
 
   const chainId = useChainId();
@@ -497,6 +502,7 @@ export default function Earn() {
         `Approve ${asset.symbol} in your wallet.`,
       );
 
+      txActionRef.current = "approve";
       await writeContractAsync({
         address: asset.token,
         abi: earnTokenAbi,
@@ -576,6 +582,7 @@ export default function Earn() {
         `Confirm your ${asset.product} deposit in your wallet.`,
       );
 
+      txActionRef.current = "deposit";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -611,6 +618,7 @@ export default function Earn() {
         "Confirm the withdrawal request in your wallet.",
       );
 
+      txActionRef.current = "requestWithdrawal";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -646,6 +654,7 @@ export default function Earn() {
         `Confirm your ${asset.symbol} withdrawal in your wallet.`,
       );
 
+      txActionRef.current = "withdraw";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -663,14 +672,26 @@ export default function Earn() {
      ======================================================= */
 
   useEffect(() => {
-    if (!txConfirmed) return;
+    if (!txConfirmed || !txHash) return;
 
     setMessage(
       "Transaction confirmed successfully.",
     );
 
     void refreshData();
-  }, [txConfirmed]);
+
+    if (!isAuthenticated || txActionRef.current === "approve") return;
+
+    const normalizedTxHash = txHash.toLowerCase();
+    if (syncedTxHashRef.current === normalizedTxHash) return;
+
+    syncedTxHashRef.current = normalizedTxHash;
+
+    void syncIntegration().catch((syncError) => {
+      syncedTxHashRef.current = null;
+      console.error("Earn post-transaction integration sync failed:", syncError);
+    });
+  }, [txConfirmed, txHash, isAuthenticated, syncIntegration]);
 
   /* =======================================================
      WRITE ERROR

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
@@ -69,6 +69,8 @@ import {
 } from "lucide-react";
 
 
+
+import { useAuth } from "@/shared/auth/AuthProvider";
 
 import styles from "./Stake.module.css";
 
@@ -317,6 +319,9 @@ function formatInputAmount(
 
 
 export default function Stake() {
+  const { isAuthenticated, syncIntegration } = useAuth();
+  const txActionRef = useRef<"approve" | "stake" | "requestUnlock" | "withdraw" | null>(null);
+  const syncedTxHashRef = useRef<string | null>(null);
 
   const { address, isConnected } = useAccount();
 
@@ -1190,6 +1195,8 @@ export default function Stake() {
 
 
 
+      txActionRef.current = "approve";
+
       await writeContractAsync({
 
         address: asset.token,
@@ -1414,7 +1421,7 @@ export default function Stake() {
 
       );
 
-
+      txActionRef.current = "stake";
 
       if (isBNB) {
 
@@ -1548,7 +1555,7 @@ export default function Stake() {
 
       );
 
-
+      txActionRef.current = "requestUnlock";
 
       if (isBNB) {
 
@@ -1670,7 +1677,7 @@ export default function Stake() {
 
       );
 
-
+      txActionRef.current = "withdraw";
 
       if (isBNB) {
 
@@ -1750,7 +1757,7 @@ export default function Stake() {
 
   useEffect(() => {
 
-    if (!txConfirmed) return;
+    if (!txConfirmed || !txHash) return;
 
 
 
@@ -1764,7 +1771,29 @@ export default function Stake() {
 
     void refreshData();
 
-  }, [txConfirmed]);
+    if (!isAuthenticated || txActionRef.current === "approve") return;
+
+    const normalizedTxHash = txHash.toLowerCase();
+
+    if (syncedTxHashRef.current === normalizedTxHash) return;
+
+    syncedTxHashRef.current = normalizedTxHash;
+
+    void syncIntegration().catch((syncError) => {
+
+      syncedTxHashRef.current = null;
+
+      console.error(
+
+        "Stake post-transaction integration sync failed:",
+
+        syncError,
+
+      );
+
+    });
+
+  }, [txConfirmed, txHash, isAuthenticated, syncIntegration]);
 
 
 

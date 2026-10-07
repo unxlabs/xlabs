@@ -22,6 +22,8 @@ import {
   type AuthWallet,
 } from "@/shared/api/auth";
 
+import { syncIntegrationBridge } from "@/shared/api/sync";
+
 type AuthStatus =
   | "disconnected"
   | "connected"
@@ -36,6 +38,7 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   isAuthenticating: boolean;
   isRestoring: boolean;
+  isIntegrationSyncing: boolean;
   user: AuthUser | null;
   wallet: AuthWallet | null;
   session: AuthSession | null;
@@ -43,6 +46,7 @@ interface AuthContextValue {
   authenticate: () => Promise<void>;
   logout: () => Promise<void>;
   clearAuth: () => void;
+  syncIntegration: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -78,12 +82,22 @@ export function AuthProvider({
   const [wallet, setWallet] = useState<AuthWallet | null>(null);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isIntegrationSyncing, setIsIntegrationSyncing] = useState(false);
 
   const authenticatedAddressRef = useRef<string | null>(null);
   const restoreAttemptAddressRef = useRef<string | null>(null);
+  const integrationSyncedAddressRef = useRef<string | null>(null);
+  const integrationSyncPromiseRef = useRef<Promise<void> | null>(null);
+
+  const resetIntegrationSyncState = useCallback(() => {
+    integrationSyncedAddressRef.current = null;
+    integrationSyncPromiseRef.current = null;
+    setIsIntegrationSyncing(false);
+  }, []);
 
   const clearAuth = useCallback(() => {
     authenticatedAddressRef.current = null;
+    resetIntegrationSyncState();
 
     setUser(null);
     setWallet(null);
@@ -91,12 +105,36 @@ export function AuthProvider({
     setError(null);
 
     setStatus(isConnected ? "connected" : "disconnected");
-  }, [isConnected]);
+  }, [isConnected, resetIntegrationSyncState]);
+
+  const syncIntegration = useCallback(async () => {
+    if (!isConnected || !address || status !== "authenticated") return;
+
+    if (integrationSyncPromiseRef.current) {
+      return integrationSyncPromiseRef.current;
+    }
+
+    const normalizedAddress = address.toLowerCase();
+    const syncPromise = (async () => {
+      setIsIntegrationSyncing(true);
+      try {
+        await syncIntegrationBridge();
+        integrationSyncedAddressRef.current = normalizedAddress;
+      } finally {
+        integrationSyncPromiseRef.current = null;
+        setIsIntegrationSyncing(false);
+      }
+    })();
+
+    integrationSyncPromiseRef.current = syncPromise;
+    return syncPromise;
+  }, [address, isConnected, status]);
 
   useEffect(() => {
     if (!isConnected || !address) {
       authenticatedAddressRef.current = null;
       restoreAttemptAddressRef.current = null;
+      resetIntegrationSyncState();
 
       setUser(null);
       setWallet(null);
@@ -114,6 +152,7 @@ export function AuthProvider({
       authenticatedAddressRef.current !== normalizedAddress
     ) {
       authenticatedAddressRef.current = null;
+      resetIntegrationSyncState();
 
       setUser(null);
       setWallet(null);
@@ -197,7 +236,21 @@ export function AuthProvider({
     return () => {
       cancelled = true;
     };
-  }, [address, isConnected]);
+  }, [address, isConnected, resetIntegrationSyncState]);
+
+  useEffect(() => {
+    if (status !== "authenticated" || !isConnected || !address) return;
+
+    const normalizedAddress = address.toLowerCase();
+    if (integrationSyncedAddressRef.current === normalizedAddress) return;
+
+    integrationSyncedAddressRef.current = normalizedAddress;
+
+    void syncIntegration().catch((syncError) => {
+      integrationSyncedAddressRef.current = null;
+      console.error("Integration Bridge sync failed:", syncError);
+    });
+  }, [address, isConnected, status, syncIntegration]);
 
   const authenticate = useCallback(async () => {
     if (!isConnected || !address) {
@@ -260,6 +313,7 @@ export function AuthProvider({
 
       authenticatedAddressRef.current = verifiedAddress;
       restoreAttemptAddressRef.current = verifiedAddress;
+      integrationSyncedAddressRef.current = null;
 
       setUser(verifyResponse.user);
       setWallet(verifyResponse.wallet);
@@ -267,6 +321,7 @@ export function AuthProvider({
       setStatus("authenticated");
     } catch (authError) {
       authenticatedAddressRef.current = null;
+      resetIntegrationSyncState();
 
       setUser(null);
       setWallet(null);
@@ -278,6 +333,7 @@ export function AuthProvider({
     address,
     connector,
     isConnected,
+    resetIntegrationSyncState,
     signMessageAsync,
   ]);
 
@@ -291,13 +347,14 @@ export function AuthProvider({
     } finally {
       authenticatedAddressRef.current = null;
       restoreAttemptAddressRef.current = address?.toLowerCase() ?? null;
+      resetIntegrationSyncState();
 
       setUser(null);
       setWallet(null);
       setSession(null);
       setStatus(isConnected && address ? "connected" : "disconnected");
     }
-  }, [address, isConnected]);
+  }, [address, isConnected, resetIntegrationSyncState]);
 
   const value = useMemo<AuthContextValue>(
     () => ({
@@ -306,6 +363,7 @@ export function AuthProvider({
       isAuthenticated: status === "authenticated",
       isAuthenticating: status === "authenticating",
       isRestoring: status === "restoring",
+      isIntegrationSyncing,
       user,
       wallet,
       session,
@@ -313,10 +371,12 @@ export function AuthProvider({
       authenticate,
       logout,
       clearAuth,
+      syncIntegration,
     }),
     [
       status,
       isConnected,
+      isIntegrationSyncing,
       user,
       wallet,
       session,
@@ -324,6 +384,7 @@ export function AuthProvider({
       authenticate,
       logout,
       clearAuth,
+      syncIntegration,
     ],
   );
 
