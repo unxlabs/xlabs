@@ -1,7 +1,7 @@
 import { createPublicClient, decodeEventLog, http, parseAbiItem, type Address, type Log } from "viem";
 import { bsc } from "viem/chains";
 
-interface Env { DB: D1Database; BNB_RPC_URL: string }
+interface Env { DB: D1Database; BNB_RPC_URL: string; INDEXER_RECOVERY_SECRET?: string; INDEXER_ADMIN_TOKEN?: string }
 
 const CHAIN_ID = 56;
 const CONFIRMATIONS = 15n;
@@ -254,19 +254,90 @@ async function runIndexer(env: Env) {
   }
 }
 
+
+type IndexerRunResult = Awaited<ReturnType<typeof runIndexer>>;
+let activeRun: Promise<IndexerRunResult> | null = null;
+
+function startIndexer(env: Env): Promise<IndexerRunResult> {
+  if (activeRun) return activeRun;
+  activeRun = runIndexer(env).finally(() => { activeRun = null; });
+  return activeRun;
+}
+
+function bearerToken(request: Request) {
+  const value = request.headers.get("authorization") ?? "";
+  return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
+}
+
+function recoveryToken(env: Env) {
+  // V8 public configuration name. Keep the old admin-token alias for backward compatibility.
+  return env.INDEXER_RECOVERY_SECRET ?? env.INDEXER_ADMIN_TOKEN ?? "";
+}
+
+async function healthSnapshot(env: Env) {
+  const now = Date.now();
+  const [s, counts, positions, positionScans] = await Promise.all([
+    env.DB.prepare("SELECT chain_id,live_cursor_block,backfill_cursor_block,latest_finalized_block,last_run_at,last_success_at,last_error,updated_at FROM chain_indexer_state WHERE chain_id=?").bind(CHAIN_ID).first<any>(),
+    env.DB.prepare("SELECT COUNT(*) AS event_count,COUNT(DISTINCT transaction_hash) AS tx_count FROM chain_events WHERE chain_id=?").bind(CHAIN_ID).first<any>(),
+    env.DB.prepare("SELECT product_type,COUNT(*) AS position_count,SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) AS active_count,MAX(last_synced_at) AS last_position_sync_at FROM chain_positions WHERE chain_id=? GROUP BY product_type").bind(CHAIN_ID).all<any>(),
+    env.DB.prepare("SELECT contract_key,contract_address,next_position_id,last_scan_at,last_success_at,last_error,updated_at FROM chain_position_scan_state WHERE chain_id=? ORDER BY contract_key").bind(CHAIN_ID).all<any>(),
+  ]);
+
+  let rpcHead: number | null = null;
+  let rpcError: string | null = null;
+  try {
+    const client = createPublicClient({ chain: bsc, transport: http(env.BNB_RPC_URL, { timeout: 10_000, retryCount: 1 }) });
+    rpcHead = Number(await client.getBlockNumber());
+  } catch (error) {
+    rpcError = error instanceof Error ? error.message.slice(0, 500) : String(error).slice(0, 500);
+  }
+
+  const finalizedHead = rpcHead == null ? null : Math.max(0, rpcHead - Number(CONFIRMATIONS));
+  const liveCursor = s?.live_cursor_block ?? null;
+  const lagBlocks = finalizedHead == null || liveCursor == null ? null : Math.max(0, finalizedHead - Number(liveCursor));
+  const lastSuccessAgeMs = s?.last_success_at ? Math.max(0, now - Number(s.last_success_at)) : null;
+  const scans = (positionScans.results ?? []).map((row: any) => {
+    const ageMs = row.last_success_at ? Math.max(0, now - Number(row.last_success_at)) : null;
+    const healthy = !row.last_error && ageMs != null && ageMs <= 15 * 60_000;
+    return { ...row, ageMs, status: healthy ? "healthy" : (ageMs != null && ageMs <= 60 * 60_000 ? "degraded" : "unhealthy") };
+  });
+  const unhealthyContracts = scans.filter((row: any) => row.status === "unhealthy").length;
+  const degradedContracts = scans.filter((row: any) => row.status === "degraded").length;
+
+  let status: "healthy" | "degraded" | "unhealthy" = "healthy";
+  if (rpcError || s?.last_error || lastSuccessAgeMs == null || lastSuccessAgeMs > 20 * 60_000 || (lagBlocks != null && lagBlocks > 1600) || unhealthyContracts > 0) status = "unhealthy";
+  else if (lastSuccessAgeMs > 10 * 60_000 || (lagBlocks != null && lagBlocks > 800) || degradedContracts > 0) status = "degraded";
+
+  return {
+    success: status !== "unhealthy", service: "unlimited-x-labs-indexer", status, chainId: CHAIN_ID,
+    trackedContracts: CONTRACTS.length, confirmations: Number(CONFIRMATIONS), rpc: { head: rpcHead, finalizedHead, error: rpcError },
+    sync: { liveCursor, backfillCursor: s?.backfill_cursor_block ?? null, lagBlocks, lastRunAt: s?.last_run_at ?? null, lastSuccessAt: s?.last_success_at ?? null, lastSuccessAgeMs, lastError: s?.last_error ?? null, running: activeRun !== null },
+    counts, positions: positions.results ?? [], positionScans: scans, recovery: { configured: Boolean(recoveryToken(env)), endpoint: "/recover" }, checkedAt: now,
+  };
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "GET" && url.pathname === "/health") {
-      const s = await env.DB.prepare("SELECT chain_id,live_cursor_block,backfill_cursor_block,latest_finalized_block,last_run_at,last_success_at,last_error,updated_at FROM chain_indexer_state WHERE chain_id=?").bind(CHAIN_ID).first();
-      const counts = await env.DB.prepare("SELECT COUNT(*) AS event_count,COUNT(DISTINCT transaction_hash) AS tx_count FROM chain_events WHERE chain_id=?").bind(CHAIN_ID).first();
-      const positions = await env.DB.prepare("SELECT product_type,COUNT(*) AS position_count,SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) AS active_count FROM chain_positions WHERE chain_id=? GROUP BY product_type").bind(CHAIN_ID).all();
-      const positionScans = await env.DB.prepare("SELECT contract_key,next_position_id,last_success_at,last_error FROM chain_position_scan_state WHERE chain_id=? ORDER BY contract_key").bind(CHAIN_ID).all();
-      return json({ success: true, service: "unlimited-x-labs-indexer", chainId: CHAIN_ID, trackedContracts: CONTRACTS.length, state: s, counts, positions: positions.results ?? [], positionScans: positionScans.results ?? [] });
+      const snapshot = await healthSnapshot(env);
+      return json(snapshot, snapshot.status === "unhealthy" ? 503 : 200);
+    }
+    if (request.method === "POST" && url.pathname === "/recover") {
+      const token = recoveryToken(env);
+      if (!token) return json({ success: false, error: "Recovery endpoint is not configured" }, 503);
+      if (bearerToken(request) !== token) return json({ success: false, error: "Unauthorized" }, 401);
+      try {
+        const result = await startIndexer(env);
+        const health = await healthSnapshot(env);
+        return json({ success: true, recovered: true, result, health });
+      } catch (error) {
+        return json({ success: false, error: error instanceof Error ? error.message : String(error) }, 500);
+      }
     }
     return json({ success: false, error: "Not Found" }, 404);
   },
   async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    ctx.waitUntil(runIndexer(env).then((r) => console.log("Indexer run complete", r)).catch((e) => console.error("Indexer run failed", e)));
+    ctx.waitUntil(startIndexer(env).then((r) => console.log("Indexer run complete", r)).catch((e) => console.error("Indexer run failed", e)));
   },
 };
