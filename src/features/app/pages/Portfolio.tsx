@@ -1,5 +1,11 @@
+import { useEffect, useState } from "react";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Link } from "react-router-dom";
+
+import { getMyNextMove, type NextMove } from "@/shared/api/nextMove";
+import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
+import { getMyRewards, type RewardProfile } from "@/shared/api/rewards";
+import { useAuth } from "@/shared/auth/AuthProvider";
 import styles from "./Portfolio.module.css";
 
 function HeroConnectButton() {
@@ -63,54 +69,86 @@ function HeroConnectButton() {
 }
 
 function PortfolioStatus() {
+  const { isAuthenticated, authenticate, isAuthenticating, isRestoring } = useAuth();
+  const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
+  const [rewards, setRewards] = useState<RewardProfile | null>(null);
+  const [nextMove, setNextMove] = useState<NextMove | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setProgression(null);
+      setRewards(null);
+      setNextMove(null);
+      return;
+    }
+
+    let cancelled = false;
+    setLoading(true);
+
+    void Promise.allSettled([
+      getMyProgression(),
+      getMyRewards(),
+      getMyNextMove(),
+    ]).then(([progressionResult, rewardsResult, nextMoveResult]) => {
+      if (cancelled) return;
+      if (progressionResult.status === "fulfilled") setProgression(progressionResult.value.progression);
+      if (rewardsResult.status === "fulfilled") setRewards(rewardsResult.value.rewards);
+      if (nextMoveResult.status === "fulfilled") setNextMove(nextMoveResult.value.nextMove);
+      setLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
+
+  if (!isAuthenticated) {
+    return (
+      <div className={styles.progressGate}>
+        <div>
+          <span>YOUR PROGRESS</span>
+          <strong>Turn activity into a track record.</strong>
+          <p>Sign in to see XP, level, rewards and your next best move.</p>
+        </div>
+        <button type="button" onClick={() => void authenticate()} disabled={isAuthenticating || isRestoring}>
+          {isAuthenticating ? "Check your wallet…" : isRestoring ? "Restoring…" : "Sign in"}
+        </button>
+      </div>
+    );
+  }
+
+  const claimable = rewards?.summary.claimable ?? 0;
+  const delivered = rewards?.summary.claimed ?? 0;
+
   return (
-    <ConnectButton.Custom>
-      {({ account, chain, mounted }) => {
-        const ready = mounted;
-        const connected = ready && account && chain;
+    <section className={styles.progressPanel}>
+      <div className={styles.progressHeading}>
+        <div>
+          <span>YOUR PROGRESS</span>
+          <h3>{loading ? "Loading your profile…" : progression?.currentLevel?.name || "Build your first level"}</h3>
+        </div>
+        <Link to="/app/season">View progression →</Link>
+      </div>
 
-        if (!ready) {
-          return (
-            <div
-              className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
-            >
-              <div className={styles.uxEmptyIcon}>◎</div>
+      <div className={styles.progressMetrics}>
+        <div><span>Lifetime XP</span><strong>{progression?.lifetimeXp ?? 0}</strong></div>
+        <div><span>To next level</span><strong>{progression?.progress.xpToNextLevel ?? 0}</strong></div>
+        <div><span>Rewards ready</span><strong>{claimable}</strong></div>
+        <div><span>Delivered</span><strong>{delivered}</strong></div>
+      </div>
 
-              <div className={styles.uxEmptyText}>
-                Loading wallet...
-              </div>
-            </div>
-          );
-        }
-
-        if (!connected) {
-          return (
-            <div
-              className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
-            >
-              <div className={styles.uxEmptyIcon}>◎</div>
-
-              <div className={styles.uxEmptyText}>
-                Connect your wallet to view your portfolio
-              </div>
-            </div>
-          );
-        }
-
-        return (
-          <div
-            className={`${styles.uxEmpty} ${styles.uxEmptyLite}`}
-          >
-            <div className={styles.uxEmptyIcon}>✓</div>
-
-            <div className={styles.uxEmptyText}>
-              Wallet connected. Choose Earn, Stake, Genesis Pass,
-              or History to manage your activity.
-            </div>
+      {nextMove ? (
+        <div className={styles.nextMove}>
+          <div>
+            <span>NEXT BEST MOVE</span>
+            <strong>{nextMove.title}</strong>
+            <p>{nextMove.description}</p>
           </div>
-        );
-      }}
-    </ConnectButton.Custom>
+          <Link to={nextMove.href}>{nextMove.ctaLabel} →</Link>
+        </div>
+      ) : null}
+    </section>
   );
 }
 
