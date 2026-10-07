@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
@@ -31,9 +31,9 @@ import {
   Zap,
 } from "lucide-react";
 
-import { useAuth } from "@/shared/auth/AuthProvider";
-
 import styles from "./Earn.module.css";
+import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+
 
 import {
   BFBTC_VAULT,
@@ -154,9 +154,6 @@ function formatDate(timestamp: bigint) {
    ========================================================= */
 
 export default function Earn() {
-  const { isAuthenticated, syncIntegration } = useAuth();
-  const txActionRef = useRef<"approve" | "deposit" | "requestWithdrawal" | "withdraw" | null>(null);
-  const syncedTxHashRef = useRef<string | null>(null);
   const { address, isConnected } = useAccount();
 
   const chainId = useChainId();
@@ -174,6 +171,30 @@ export default function Earn() {
   const [amount, setAmount] = useState("");
 
   const [message, setMessage] = useState("");
+
+  const [indexedPositions, setIndexedPositions] = useState<IndexedPosition[]>([]);
+  const [indexerUpdatedAt, setIndexerUpdatedAt] = useState<number | null>(null);
+
+  async function refreshIndexedPositions() {
+    if (!isConnected) {
+      setIndexedPositions([]);
+      setIndexerUpdatedAt(null);
+      return;
+    }
+
+    try {
+      const response = await getMyPositions();
+      setIndexedPositions(response.positions);
+      setIndexerUpdatedAt(Date.now());
+    } catch {
+      // Contract reads remain authoritative for financial actions.
+    }
+  }
+
+  useEffect(() => {
+    void refreshIndexedPositions();
+  }, [address, isConnected]);
+
 
   useEffect(() => {
     const assetFromUrl: EarnAsset =
@@ -439,6 +460,7 @@ export default function Earn() {
       refetchPositionIds(),
       refetchPositions(),
       refetchAllowance(),
+      refreshIndexedPositions(),
     ]);
   }
 
@@ -502,7 +524,6 @@ export default function Earn() {
         `Approve ${asset.symbol} in your wallet.`,
       );
 
-      txActionRef.current = "approve";
       await writeContractAsync({
         address: asset.token,
         abi: earnTokenAbi,
@@ -582,7 +603,6 @@ export default function Earn() {
         `Confirm your ${asset.product} deposit in your wallet.`,
       );
 
-      txActionRef.current = "deposit";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -618,7 +638,6 @@ export default function Earn() {
         "Confirm the withdrawal request in your wallet.",
       );
 
-      txActionRef.current = "requestWithdrawal";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -654,7 +673,6 @@ export default function Earn() {
         `Confirm your ${asset.symbol} withdrawal in your wallet.`,
       );
 
-      txActionRef.current = "withdraw";
       await writeContractAsync({
         address: asset.vault,
         abi: earnVaultAbi,
@@ -672,26 +690,14 @@ export default function Earn() {
      ======================================================= */
 
   useEffect(() => {
-    if (!txConfirmed || !txHash) return;
+    if (!txConfirmed) return;
 
     setMessage(
       "Transaction confirmed successfully.",
     );
 
     void refreshData();
-
-    if (!isAuthenticated || txActionRef.current === "approve") return;
-
-    const normalizedTxHash = txHash.toLowerCase();
-    if (syncedTxHashRef.current === normalizedTxHash) return;
-
-    syncedTxHashRef.current = normalizedTxHash;
-
-    void syncIntegration().catch((syncError) => {
-      syncedTxHashRef.current = null;
-      console.error("Earn post-transaction integration sync failed:", syncError);
-    });
-  }, [txConfirmed, txHash, isAuthenticated, syncIntegration]);
+  }, [txConfirmed]);
 
   /* =======================================================
      WRITE ERROR
@@ -1069,7 +1075,7 @@ export default function Earn() {
           </div>
 
           <div className={styles.activePosition}>
-            <span>Active principal</span>
+            <span>Contract active principal</span>
 
             <strong>
               {formatAssetAmount(
@@ -1087,6 +1093,25 @@ export default function Earn() {
           </div>
 
           <div className={styles.sideStats}>
+            <div>
+              <span>Indexed principal</span>
+
+              <strong>
+                {formatAssetAmount(
+                  indexedPositions
+                    .filter((item) =>
+                      item.productType === "earn" &&
+                      item.contractAddress.toLowerCase() === asset.vault.toLowerCase() &&
+                      !item.withdrawnAtChain
+                    )
+                    .reduce((total, item) => total + BigInt(item.principalAtomic), 0n),
+                  asset.decimals,
+                  6,
+                )}{" "}
+                {asset.symbol}
+              </strong>
+            </div>
+
             <div>
               <span>Total deposited</span>
 
@@ -1204,6 +1229,12 @@ export default function Earn() {
             </button>
           </div>
 
+          <div className={styles.indexerBar}>
+            <span><CheckCircle2 size={14} /> Indexer connected</span>
+            <span>{indexedPositions.filter((item) => item.productType === "earn" && item.contractAddress.toLowerCase() === asset.vault.toLowerCase()).length} indexed</span>
+            <span>{indexerUpdatedAt ? `Synced ${new Date(indexerUpdatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}` : "Syncing…"}</span>
+          </div>
+
           <div className={styles.positionsGrid}>
             {positions.map((position) => {
               if (!position) return null;
@@ -1275,6 +1306,23 @@ export default function Earn() {
                       </strong>
                     </div>
                   </div>
+
+                  {(() => {
+                    const indexed = indexedPositions.find((item) =>
+                      item.productType === "earn" &&
+                      item.contractAddress.toLowerCase() === asset.vault.toLowerCase() &&
+                      item.positionId === Number(position.id),
+                    );
+                    if (!indexed) return null;
+                    const lifecycle = indexed.withdrawnAtChain
+                      ? `Completed ${new Date(indexed.withdrawnAtChain * 1000).toLocaleDateString()}`
+                      : indexed.claimableAtChain
+                        ? `Claimable since ${new Date(indexed.claimableAtChain * 1000).toLocaleDateString()}`
+                        : indexed.withdrawalRequestedAtChain
+                          ? `Requested ${new Date(indexed.withdrawalRequestedAtChain * 1000).toLocaleDateString()}`
+                          : "Active on BNB Chain";
+                    return <div className={styles.lifecycleLine}><span>Lifecycle</span><strong>{lifecycle}</strong></div>;
+                  })()}
 
                   {status === 1 && (
                     <button

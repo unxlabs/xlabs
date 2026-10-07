@@ -1058,3 +1058,51 @@
   border-color: var(--stake-accent);
   box-shadow: 0 0 0 1px var(--stake-accent-glow);
 }
+
+/* Indexer V5 — position management context */
+.indexerBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: center;
+  margin: 14px 0 18px;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.68);
+}
+.indexerBar span { display: inline-flex; align-items: center; gap: 6px; }
+.indexerBar span:first-child { color: rgba(255, 255, 255, 0.92); font-weight: 700; }
+.lifecycleLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 12px 0;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  font-size: 12px;
+}
+.lifecycleLine span { color: rgba(255, 255, 255, 0.55); }
+.lifecycleLine strong { color: rgba(255, 255, 255, 0.9); text-align: right; }
+
+
+.emptyPositions {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.emptyPositions strong {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+.emptyPositions span {
+  color: rgba(255, 255, 255, 0.58);
+  font-size: 0.88rem;
+}

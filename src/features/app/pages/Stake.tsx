@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
@@ -70,9 +70,9 @@ import {
 
 
 
-import { useAuth } from "@/shared/auth/AuthProvider";
-
 import styles from "./Stake.module.css";
+import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+
 
 
 
@@ -319,9 +319,6 @@ function formatInputAmount(
 
 
 export default function Stake() {
-  const { isAuthenticated, syncIntegration } = useAuth();
-  const txActionRef = useRef<"approve" | "stake" | "requestUnlock" | "withdraw" | null>(null);
-  const syncedTxHashRef = useRef<string | null>(null);
 
   const { address, isConnected } = useAccount();
 
@@ -340,6 +337,30 @@ export default function Stake() {
 
 
   const [message, setMessage] = useState("");
+
+  const [indexedPositions, setIndexedPositions] = useState<IndexedPosition[]>([]);
+  const [indexerUpdatedAt, setIndexerUpdatedAt] = useState<number | null>(null);
+
+  async function refreshIndexedPositions() {
+    if (!isConnected) {
+      setIndexedPositions([]);
+      setIndexerUpdatedAt(null);
+      return;
+    }
+
+    try {
+      const response = await getMyPositions();
+      setIndexedPositions(response.positions);
+      setIndexerUpdatedAt(Date.now());
+    } catch {
+      // Contract reads remain authoritative for financial actions.
+    }
+  }
+
+  useEffect(() => {
+    void refreshIndexedPositions();
+  }, [address, isConnected]);
+
 
 
 
@@ -957,6 +978,7 @@ export default function Stake() {
 
         : Promise.resolve(),
 
+      refreshIndexedPositions(),
     ]);
 
   }
@@ -1195,8 +1217,6 @@ export default function Stake() {
 
 
 
-      txActionRef.current = "approve";
-
       await writeContractAsync({
 
         address: asset.token,
@@ -1421,7 +1441,7 @@ export default function Stake() {
 
       );
 
-      txActionRef.current = "stake";
+
 
       if (isBNB) {
 
@@ -1555,7 +1575,7 @@ export default function Stake() {
 
       );
 
-      txActionRef.current = "requestUnlock";
+
 
       if (isBNB) {
 
@@ -1677,7 +1697,7 @@ export default function Stake() {
 
       );
 
-      txActionRef.current = "withdraw";
+
 
       if (isBNB) {
 
@@ -1757,7 +1777,7 @@ export default function Stake() {
 
   useEffect(() => {
 
-    if (!txConfirmed || !txHash) return;
+    if (!txConfirmed) return;
 
 
 
@@ -1771,29 +1791,7 @@ export default function Stake() {
 
     void refreshData();
 
-    if (!isAuthenticated || txActionRef.current === "approve") return;
-
-    const normalizedTxHash = txHash.toLowerCase();
-
-    if (syncedTxHashRef.current === normalizedTxHash) return;
-
-    syncedTxHashRef.current = normalizedTxHash;
-
-    void syncIntegration().catch((syncError) => {
-
-      syncedTxHashRef.current = null;
-
-      console.error(
-
-        "Stake post-transaction integration sync failed:",
-
-        syncError,
-
-      );
-
-    });
-
-  }, [txConfirmed, txHash, isAuthenticated, syncIntegration]);
+  }, [txConfirmed]);
 
 
 
@@ -2966,9 +2964,7 @@ export default function Stake() {
 
 
 
-      {isConnected &&
-
-        positions.length > 0 && (
+      {isConnected && (
 
           <section
 
@@ -3052,7 +3048,11 @@ export default function Stake() {
 
             </div>
 
-
+            <div className={styles.indexerBar}>
+              <span>Indexer connected</span>
+              <span>{indexedPositions.filter((item) => item.productType === "stake" && item.contractAddress.toLowerCase() === asset.contract.toLowerCase()).length} indexed</span>
+              <span>{indexerUpdatedAt ? `Synced ${new Date(indexerUpdatedAt).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true })}` : "Syncing…"}</span>
+            </div>
 
             <div
 
@@ -3063,6 +3063,13 @@ export default function Stake() {
               }
 
             >
+
+              {positions.length === 0 && (
+                <div className={styles.emptyPositions}>
+                  <strong>No {asset.symbol} positions for this wallet yet.</strong>
+                  <span>The indexer is connected and will show new positions here after they are indexed.</span>
+                </div>
+              )}
 
               {positions.map(
 
@@ -3263,6 +3270,25 @@ export default function Stake() {
                       </div>
 
 
+
+                      {(() => {
+                        const indexed = indexedPositions.find((item) =>
+                          item.productType === "stake" &&
+                          item.contractAddress.toLowerCase() === asset.contract.toLowerCase() &&
+                          item.positionId === Number(position.id),
+                        );
+                        if (!indexed) return null;
+                        const lifecycle = indexed.withdrawnAtChain
+                          ? `Withdrawn ${new Date(indexed.withdrawnAtChain * 1000).toLocaleDateString()}`
+                          : indexed.claimableAtChain
+                            ? `Claimable since ${new Date(indexed.claimableAtChain * 1000).toLocaleDateString()}`
+                            : indexed.withdrawalRequestedAtChain
+                              ? `Unlock requested ${new Date(indexed.withdrawalRequestedAtChain * 1000).toLocaleDateString()}`
+                              : indexed.lockEndsAtChain
+                                ? `Lock ends ${new Date(indexed.lockEndsAtChain * 1000).toLocaleDateString()}`
+                                : "Active on BNB Chain";
+                        return <div className={styles.lifecycleLine}><span>Lifecycle</span><strong>{lifecycle}</strong></div>;
+                      })()}
 
                       {status === 1 && (
 
