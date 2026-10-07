@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import {
@@ -33,6 +33,7 @@ import {
 
 import styles from "./Earn.module.css";
 import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+import { syncAfterOnchainTransaction } from "../../../shared/api/postTransactionSync";
 import { getLifecycleLabel } from "../../../shared/positions/lifecycle";
 
 
@@ -172,6 +173,9 @@ export default function Earn() {
   const [amount, setAmount] = useState("");
 
   const [message, setMessage] = useState("");
+
+  const pendingSyncAction = useRef<string | null>(null);
+  const lastSyncedTxHash = useRef<string | null>(null);
 
   const [indexedPositions, setIndexedPositions] = useState<IndexedPosition[]>([]);
   const [indexerUpdatedAt, setIndexerUpdatedAt] = useState<number | null>(null);
@@ -603,6 +607,7 @@ export default function Earn() {
       setMessage(
         `Confirm your ${asset.product} deposit in your wallet.`,
       );
+      pendingSyncAction.current = "earn-deposit";
 
       await writeContractAsync({
         address: asset.vault,
@@ -638,6 +643,7 @@ export default function Earn() {
       setMessage(
         "Confirm the withdrawal request in your wallet.",
       );
+      pendingSyncAction.current = "earn-request-withdrawal";
 
       await writeContractAsync({
         address: asset.vault,
@@ -673,6 +679,7 @@ export default function Earn() {
       setMessage(
         `Confirm your ${asset.symbol} withdrawal in your wallet.`,
       );
+      pendingSyncAction.current = "earn-withdraw";
 
       await writeContractAsync({
         address: asset.vault,
@@ -691,14 +698,33 @@ export default function Earn() {
      ======================================================= */
 
   useEffect(() => {
-    if (!txConfirmed) return;
+    if (!txConfirmed || !txHash) return;
+    if (lastSyncedTxHash.current === txHash) return;
 
-    setMessage(
-      "Transaction confirmed successfully.",
-    );
+    lastSyncedTxHash.current = txHash;
+    const action = pendingSyncAction.current;
+    pendingSyncAction.current = null;
 
-    void refreshData();
-  }, [txConfirmed]);
+    setMessage("Transaction confirmed. Syncing your position...");
+
+    void (async () => {
+      await refreshData();
+
+      if (action) {
+        await syncAfterOnchainTransaction();
+      }
+
+      await refreshData();
+      window.setTimeout(() => void refreshData(), 4_000);
+      window.setTimeout(() => void refreshData(), 12_000);
+
+      setMessage(
+        action
+          ? "Transaction confirmed. Your on-chain data is refreshed; indexed history will follow automatically."
+          : "Transaction confirmed successfully.",
+      );
+    })();
+  }, [txConfirmed, txHash]);
 
   /* =======================================================
      WRITE ERROR
@@ -706,6 +732,7 @@ export default function Earn() {
 
   useEffect(() => {
     if (!writeError) return;
+    pendingSyncAction.current = null;
 
     const rejected =
       writeError.message.includes("User rejected") ||

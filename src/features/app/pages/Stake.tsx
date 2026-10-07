@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 
@@ -72,6 +72,7 @@ import {
 
 import styles from "./Stake.module.css";
 import { getMyPositions, type IndexedPosition } from "../../../shared/api/positions";
+import { syncAfterOnchainTransaction } from "../../../shared/api/postTransactionSync";
 import { getLifecycleLabel } from "../../../shared/positions/lifecycle";
 
 
@@ -338,6 +339,9 @@ export default function Stake() {
 
 
   const [message, setMessage] = useState("");
+
+  const pendingSyncAction = useRef<string | null>(null);
+  const lastSyncedTxHash = useRef<string | null>(null);
 
   const [indexedPositions, setIndexedPositions] = useState<IndexedPosition[]>([]);
   const [indexerUpdatedAt, setIndexerUpdatedAt] = useState<number | null>(null);
@@ -1305,6 +1309,7 @@ export default function Stake() {
 
 
     try {
+      pendingSyncAction.current = "stake-deposit";
 
       value = parseUnits(
 
@@ -1569,6 +1574,7 @@ export default function Stake() {
 
 
     try {
+      pendingSyncAction.current = "stake-request-unlock";
 
       setMessage(
 
@@ -1691,6 +1697,7 @@ export default function Stake() {
 
 
     try {
+      pendingSyncAction.current = "stake-withdraw";
 
       setMessage(
 
@@ -1778,23 +1785,33 @@ export default function Stake() {
 
   useEffect(() => {
 
-    if (!txConfirmed) return;
+    if (!txConfirmed || !txHash) return;
+    if (lastSyncedTxHash.current === txHash) return;
 
+    lastSyncedTxHash.current = txHash;
+    const action = pendingSyncAction.current;
+    pendingSyncAction.current = null;
 
+    setMessage("Transaction confirmed. Syncing your position...");
 
-    setMessage(
+    void (async () => {
+      await refreshData();
 
-      "Transaction confirmed successfully.",
+      if (action) {
+        await syncAfterOnchainTransaction();
+      }
 
-    );
+      await refreshData();
+      window.setTimeout(() => void refreshData(), 4_000);
+      window.setTimeout(() => void refreshData(), 12_000);
 
-
-
-    void refreshData();
-
-  }, [txConfirmed]);
-
-
+      setMessage(
+        action
+          ? "Transaction confirmed. Your on-chain data is refreshed; indexed history will follow automatically."
+          : "Transaction confirmed successfully.",
+      );
+    })();
+  }, [txConfirmed, txHash]);
 
   /* =======================================================
 
@@ -1807,6 +1824,7 @@ export default function Stake() {
   useEffect(() => {
 
     if (!writeError) return;
+    pendingSyncAction.current = null;
 
 
 
