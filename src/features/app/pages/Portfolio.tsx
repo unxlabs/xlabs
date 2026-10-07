@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { getMyNextMove, type NextMove } from "@/shared/api/nextMove";
 import { getMyProgression, type ProgressionSnapshot } from "@/shared/api/progression";
 import { getMyRewards, type RewardProfile } from "@/shared/api/rewards";
+import { getMyPositions, type IndexedPositionSummary } from "@/shared/api/positions";
 import { useAuth } from "@/shared/auth/AuthProvider";
 import styles from "./Portfolio.module.css";
 
@@ -73,6 +74,7 @@ function PortfolioStatus() {
   const [progression, setProgression] = useState<ProgressionSnapshot | null>(null);
   const [rewards, setRewards] = useState<RewardProfile | null>(null);
   const [nextMove, setNextMove] = useState<NextMove | null>(null);
+  const [positions, setPositions] = useState<IndexedPositionSummary | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -80,6 +82,7 @@ function PortfolioStatus() {
       setProgression(null);
       setRewards(null);
       setNextMove(null);
+      setPositions(null);
       return;
     }
 
@@ -90,11 +93,13 @@ function PortfolioStatus() {
       getMyProgression(),
       getMyRewards(),
       getMyNextMove(),
-    ]).then(([progressionResult, rewardsResult, nextMoveResult]) => {
+      getMyPositions(),
+    ]).then(([progressionResult, rewardsResult, nextMoveResult, positionsResult]) => {
       if (cancelled) return;
       if (progressionResult.status === "fulfilled") setProgression(progressionResult.value.progression);
       if (rewardsResult.status === "fulfilled") setRewards(rewardsResult.value.rewards);
       if (nextMoveResult.status === "fulfilled") setNextMove(nextMoveResult.value.nextMove);
+      if (positionsResult.status === "fulfilled") setPositions(positionsResult.value.summary);
       setLoading(false);
     });
 
@@ -136,6 +141,13 @@ function PortfolioStatus() {
         <div><span>To next level</span><strong>{progression?.progress.xpToNextLevel ?? 0}</strong></div>
         <div><span>Rewards ready</span><strong>{claimable}</strong></div>
         <div><span>Delivered</span><strong>{delivered}</strong></div>
+      </div>
+
+      <div className={styles.onchainPositions}>
+        <div><span>ON-CHAIN POSITIONS</span><strong>{positions?.total ?? 0}</strong><p>Indexed directly from your Earn and Stake contracts on BNB Chain.</p></div>
+        <div className={styles.positionBreakdown}>
+          <span><b>{positions?.earn ?? 0}</b> Earn</span><span><b>{positions?.stake ?? 0}</b> Stake</span><span><b>{positions?.active ?? 0}</b> Active</span><span><b>{positions?.withdrawalPending ?? 0}</b> Withdrawal pending</span>
+        </div>
       </div>
 
       {nextMove ? (

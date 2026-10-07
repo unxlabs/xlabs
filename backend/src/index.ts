@@ -5271,6 +5271,60 @@ export default {
       }
     }
 
+    if (request.method === "GET" && url.pathname === "/positions/me") {
+      try {
+        const auth = await getAuthenticatedContext(request, env);
+        if (!auth) return jsonResponse(request, { success: false, authenticated: false }, 401);
+
+        const walletAddress = auth.wallet.address.toLowerCase();
+        const result = await env.DB.prepare(`SELECT id,chain_id,product_type,contract_key,contract_address,position_id,pool_id,user_address,principal_atomic,funded_for_withdrawal_atomic,status,created_at_chain,lock_started_at_chain,lock_ends_at_chain,withdrawal_requested_at_chain,funded_at_chain,claimable_at_chain,withdrawn_at_chain,first_seen_at,last_synced_at FROM chain_positions WHERE chain_id=56 AND lower(user_address)=? ORDER BY created_at_chain DESC,contract_key ASC,position_id DESC`).bind(walletAddress).all();
+        const positions = result.results ?? [];
+
+        const summary = positions.reduce((acc: { total: number; earn: number; stake: number; active: number; withdrawalPending: number; withdrawn: number }, row: any) => {
+          acc.total += 1;
+          if (row.product_type === "earn") acc.earn += 1;
+          if (row.product_type === "stake") acc.stake += 1;
+          if (Number(row.status) === 1) acc.active += 1;
+          if (Number(row.status) === 2 || Number(row.status) === 3) acc.withdrawalPending += 1;
+          if (Number(row.status) >= 4 || Number(row.withdrawn_at_chain ?? 0) > 0) acc.withdrawn += 1;
+          return acc;
+        }, { total: 0, earn: 0, stake: 0, active: 0, withdrawalPending: 0, withdrawn: 0 });
+
+        return jsonResponse(request, {
+          success: true,
+          authenticated: true,
+          walletAddress: getAddress(auth.wallet.address),
+          chainId: 56,
+          summary,
+          positions: positions.map((row: any) => ({
+            id: row.id,
+            chainId: row.chain_id,
+            productType: row.product_type,
+            contractKey: row.contract_key,
+            contractAddress: getAddress(row.contract_address),
+            positionId: row.position_id,
+            poolId: row.pool_id,
+            userAddress: getAddress(row.user_address),
+            principalAtomic: row.principal_atomic,
+            fundedForWithdrawalAtomic: row.funded_for_withdrawal_atomic ?? "0",
+            status: row.status,
+            createdAtChain: row.created_at_chain,
+            lockStartedAtChain: row.lock_started_at_chain,
+            lockEndsAtChain: row.lock_ends_at_chain,
+            withdrawalRequestedAtChain: row.withdrawal_requested_at_chain,
+            fundedAtChain: row.funded_at_chain,
+            claimableAtChain: row.claimable_at_chain,
+            withdrawnAtChain: row.withdrawn_at_chain,
+            firstSeenAt: row.first_seen_at,
+            lastSyncedAt: row.last_synced_at,
+          })),
+        });
+      } catch (error) {
+        console.error("Indexed positions read failed:", error);
+        return jsonResponse(request, { success: false, error: "Unable to load indexed positions." }, 500);
+      }
+    }
+
     if(request.method==="GET"&&url.pathname==="/next-move/me"){const auth=await getAuthenticatedContext(request,env);if(!auth)return jsonResponse(request,{success:false,authenticated:false},401);return jsonResponse(request,{success:true,nextMove:await getNextMoveSnapshot(env.DB,auth.user.id)});}
     if(request.method==="GET"&&url.pathname==="/leaderboard/season"){
       const auth=await getAuthenticatedContext(request,env);
